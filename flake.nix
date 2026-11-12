@@ -16,8 +16,16 @@
       packages.${system} = {
         legendary = pkgs.callPackage ./nix/pkgs/legendary.nix { };
         gitleaks = pkgs.gitleaks; # used by nix/git-hooks/pre-commit, same pin as everything else
+        backend = pkgs.callPackage ./nix/pkgs/backend.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
       };
+
+      nixosModules.server = { lib, ... }: {
+        imports = [ ./nix/modules/server.nix ];
+        services.dauntless-nix.package = lib.mkDefault self.packages.${system}.backend;
+      };
+
+      checks.${system}.server = import ./nix/tests/server.nix { inherit self pkgs; };
     };
 }
