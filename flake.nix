@@ -22,7 +22,10 @@
         config.microsoftVisualStudioLicenseAccepted = acceptMicrosoftVisualStudioLicense;
       };
       pkgs = mkPkgs { };
-      pkgsMsvc = mkPkgs { acceptMicrosoftVisualStudioLicense = builtins.getEnv "DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE" == "1"; };
+      # Only true for `DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE=1 nix ... --impure`. Pure evaluation (nix flake check, CI,
+      # anyone who has not opted in) never sees the MSVC packages, so nothing evaluates the license gate.
+      msvcAccepted = builtins.getEnv "DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE" == "1";
+      pkgsMsvc = mkPkgs { acceptMicrosoftVisualStudioLicense = msvcAccepted; };
 
       msvcPackagesFor = p: rec {
         msvc-toolchain = p.callPackage ./nix/pkgs/msvc-toolchain.nix { };
@@ -37,7 +40,7 @@
         gameserver-wine = pkgs.callPackage ./nix/pkgs/gameserver-wine.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
-      } // msvcPackagesFor pkgsMsvc;
+      } // lib.optionalAttrs msvcAccepted (msvcPackagesFor pkgsMsvc);
 
       # For modules / downstream flakes: lib.msvcPackages { acceptMicrosoftVisualStudioLicense = true; }
       lib.msvcPackages = args: msvcPackagesFor (mkPkgs args);
