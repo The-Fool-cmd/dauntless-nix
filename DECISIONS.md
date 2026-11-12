@@ -238,3 +238,24 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   running.
 - It changes into the game folder before calling `steam-run`, because the sandbox re-enters the caller's working
   directory, which may not exist inside it (seen with `/etc/nixos`).
+
+## D19 — Real progression data: export the XP curves from the client, Hunt Pass from the wiki (2026-11-13)
+- **Why it matters:** `progression_config.json` holds every track's rank curve: weapon and player levels,
+  mastery, the Hunt Pass, and prestige. The backend refuses XP grants for any track without a curve (`"no rank
+  curve in progression_config.json"`), so the synthetic example would save no progression at all. Upstream calls
+  this file a captured live-service response that the client does not contain.
+- **Finding:** the downstream fork HyjinnxDev/dauntless-revamped (AGPL-3.0, versions/1.14.7, commit `874ad303`) has:
+  - `tools/CatalogExporter/ProgressionExporter.cpp`, which exports `player_experience_track_table`,
+    `weapon_experience_track_table`, `experience_track_table`, `mastery_track_table` and
+    `progression_track_table` from the running client, with full per-rank XP costs and rewards;
+  - `scripts/generate_progression_config.cjs`, which assembles `progression_config` from that export;
+  - `scripts/fetch_hunt_passes.cjs`, which rebuilds the five 1.10–1.14 Hunt Pass reward tracks from the Dauntless
+    wiki (one-time fetch; the tier rewards really are not in the client);
+  - Lady Luck store generators.
+- **Chosen:** cherry-pick those pieces with attribution in NOTICE.md. Build CatalogExporter with the D14 toolchain
+  and inject it through `mystic_loader.ini` (as with Dumper-7) into our own 1.14.7 client. Generate the real
+  backend and Director data on the server's state directory, never in the repo.
+- **Ordering:**
+  - Some exports (hunts, store, Slayer's Path) need the client in Ramsgate, which needs the backend, the Director
+    and a working client session. Those come from phase 3 running first on synthetic data.
+  - The XP-track tables load at the front end, so they can be exported earlier.
