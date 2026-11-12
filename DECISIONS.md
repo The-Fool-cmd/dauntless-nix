@@ -238,3 +238,65 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   running.
 - It changes into the game folder before calling `steam-run`, because the sandbox re-enters the caller's working
   directory, which may not exist inside it (seen with `/etc/nixos`).
+
+## D19 — Real progression data: export the XP curves from the client, Hunt Pass from the wiki (2026-11-13)
+- **Why it matters:** `progression_config.json` holds every track's rank curve: weapon and player levels,
+  mastery, the Hunt Pass, and prestige. The backend refuses XP grants for any track without a curve (`"no rank
+  curve in progression_config.json"`), so the synthetic example would save no progression at all. Upstream calls
+  this file a captured live-service response that the client does not contain.
+- **Finding:** the downstream fork HyjinnxDev/dauntless-revamped (AGPL-3.0, versions/1.14.7, commit `874ad303`) has:
+  - `tools/CatalogExporter/ProgressionExporter.cpp`, which exports `player_experience_track_table`,
+    `weapon_experience_track_table`, `experience_track_table`, `mastery_track_table` and
+    `progression_track_table` from the running client, with full per-rank XP costs and rewards;
+  - `scripts/generate_progression_config.cjs`, which assembles `progression_config` from that export;
+  - `scripts/fetch_hunt_passes.cjs`, which rebuilds the five 1.10–1.14 Hunt Pass reward tracks from the Dauntless
+    wiki (one-time fetch; the tier rewards really are not in the client);
+  - Lady Luck store generators.
+- **Chosen:** cherry-pick those pieces with attribution in NOTICE.md. Build CatalogExporter with the D14 toolchain
+  and inject it through `mystic_loader.ini` (as with Dumper-7) into our own 1.14.7 client. Generate the real
+  backend and Director data on the server's state directory, never in the repo.
+- **Ordering:**
+  - Some exports (hunts, store, Slayer's Path) need the client in Ramsgate, which needs the backend, the Director
+    and a working client session. Those come from phase 3 running first on synthetic data.
+  - The XP-track tables load at the front end, so they can be exported earlier.
+
+## D20 — Director module, per-interface firewall, WireGuard guard (2026-11-13)
+- **`nix/pkgs/director.nix`** builds ParadoxDirector with `shared/hunt-manifest`; real hunt tables are kept out of
+  the store.
+- **Upstream-friendly patch:** an optional `BIND_HOST` for the Director, the same key the backend uses. The Director
+  API has **no authentication** and listened on all interfaces. Unset keeps the old behaviour; the module sets
+  `127.0.0.1`.
+- **`nix/modules/director.nix`** (`services.dauntless-nix.director`):
+  - a setup one-shot checks the server's pristine `gameDir` exe against the approved SHA-256, hard-links (or copies)
+    it to `<stateDir>/director/game`, installs `MysticParadox.dll` and `winmm.dll` from the `runtime` package,
+    removes any `mystic_loader.ini`, and writes `METAGAME_API_KEY` (= the backend's `GAMESERVER_API_KEYS`) to a
+    `0600` env file;
+  - the service runs as its own user with `KillMode=control-group`, so stopping it stops every game server;
+  - game servers get `MYSTICPARADOX_BACKEND_URL=http://127.0.0.1:<backend>`, the loopback backend instead of the
+    public name;
+  - the hunt limit defaults to 2 (two players).
+  - **Port:** the default is 3001, but the server must override it (3011), because its Uptime Kuma container
+    publishes 3001 on every interface.
+- **Firewall scoping:** `services.dauntless-nix.firewall.interfaces` opens 80/443 and the game UDP range only on the
+  listed interfaces. the server scopes its firewall per interface and has an IoT VLAN, so a global open would leak
+  onto it.
+- **`nix/modules/wireguard.nix`** (`wg-dauntless`, UDP 51821): the peer list carries public keys, and the server key
+  is generated on the host. A guard runs before the NixOS firewall's accepts, for both the iptables and nftables
+  backends:
+  - on the tunnel, only 80/443 and the game UDP range are accepted, even if the host opens other ports elsewhere;
+  - nothing arriving from the tunnel is forwarded. the server has `ip_forward` on (Podman), and without this
+    rule a peer that routes the LAN into the tunnel reaches other LAN hosts. The negative control proved it: with
+    the rule removed, the test reached a LAN host's port 9999.
+- **One address everywhere:** players use the tunnel address (e.g. `10.77.0.1`) for HTTPS and game UDP. LAN players
+  reach it through a static route via the server's LAN IP (client module), so `MY_IP` and the client
+  `MYSTICPARADOX_BACKEND_URL` are the same for both players. The self-signed certificate gets an `IP:` SAN when
+  `publicHost` is an address.
+- **VM test (`checks.server`), three VMs** (server, LAN player, remote player), with VLANs for "internet" and the
+  home LAN. It checks:
+  - Ramsgate and the Training Grounds come up through a stub game server;
+  - the Director API is loopback-only;
+  - a LAN player gets pong, HTTPS and launcher status through the tunnel address;
+  - a remote player over WireGuard reaches the game ports only, not 8080, 22, 3000, 3011 or 27017, nor the LAN
+    service through the server's LAN IP or another LAN host, nor anything outside the tunnel;
+  - stopping the Director kills its servers;
+  - the secrets files are `0600`.
