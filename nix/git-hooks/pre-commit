@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 
 # 1. Game files, Epic manifests, generated SDK, exported data, Legendary/Epic state.
 bad=$(git diff --cached --name-only --diff-filter=ACMR | grep -iE \
-  '\.(pak|ucas|utoc|sig|exe|dll|pdb|manifest|uasset|umap|bin)$|(^|/)(Items_Analysis|SDK|legendary|pfx)/|(^|/)Version\.txt$|user\.json$|\.env($|\.)' \
+  '\.(pak|ucas|utoc|sig|exe|dll|lib|obj|pdb|manifest|uasset|umap|bin|vsman)$|(^|/)(Items_Analysis|SDK|CppSDK|Dumpspace|legendary|pfx|\.xwin-cache|xwin-cache|splat)/|GObjects-Dump|(^|/)Version\.txt$|user\.json$|\.env($|\.)' \
   | grep -vE '\.env\.(example|p2p\.example)$' || true)
 if [ -n "$bad" ]; then
   echo "pre-commit: refusing to commit game files / credentials:" >&2

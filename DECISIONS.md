@@ -153,20 +153,46 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Gotcha:** Proton writes no log, and ignores `WINEDEBUG`, unless `SteamGameId` is set. The wrapper now defaults
   it to `dauntless-nix`.
 
-## D14 — C++ toolchain for Dumper-7, the runtime and CatalogExporter (PROPOSED 2026-11-13, awaiting license acceptance)
+## D14 — C++ toolchain: clang-cl + lld-link + MSVC CRT/Windows SDK (ACCEPTED 2026-11-13)
 - **Needs:** MSVC-dialect C++. The runtime uses `__try`/`__except` 70 times, MSVC intrinsics, `/MT` and `.vcxproj`
   builds, and is linked against an SDK whose layout must match the MSVC-compiled game exactly.
 - **Options:**
-  1. **clang-cl + lld-link (LLVM 21, nixpkgs) with the MSVC CRT/STL and Windows SDK fetched by `xwin`** (nixpkgs
-     0.7.0). The download is pinned as a fixed-output derivation and never committed or redistributed. This gives the
-     same ABI and STL as upstream's MSVC builds, needs minimal source patches (upstream-friendly), and `xwin` creates
-     the case-variant symlinks that Windows-only code expects. It requires accepting Microsoft's license terms for
-     that download.
-  2. **clang or GCC for `x86_64-w64-mingw32`** (MinGW-w64, fully open source). clang does compile `__try` for this
-     target (tested). But it uses the Itanium C++ ABI, not MSVC's: tail-padding reuse and member-function-pointer and
-     return conventions can differ from the game. Only `Assertions.inl` would catch layout drift. It also needs a
-     case-shim include directory (Dumper-7 fails immediately on `Windows.h`) and more porting patches.
-  3. **MSVC under Wine.** It needs the same Microsoft license, and is slower and more fragile than option 1.
-- **Proposed:** option 1. Option 2 is the fallback if the license is declined.
-- **Upstream bug found:** Dumper-7's `CMakeLists.txt` includes `cmake/common.cmake`, but the file is `Common.cmake`
-  (fails on case-sensitive filesystems).
+  1. clang-cl + lld-link (LLVM 21) with the MSVC CRT/STL and Windows SDK fetched by `xwin`.
+  2. clang or GCC for MinGW-w64 (open source, but the Itanium C++ ABI, case-shim includes and more porting).
+  3. MSVC under Wine.
+- **Chosen:** option 1. The repo owner accepted Microsoft's license terms for the xwin download on 2026-11-13.
+  - nixpkgs' own `windows.sdk` (xwin, pinned VS 17.14 manifest and hash; CRT 14.44, SDK 10.0.26100) is used, gated
+    by `config.microsoftVisualStudioLicenseAccepted`.
+  - **This flake never accepts the license for anyone.** CLI builds opt in per command
+    (`DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE=1 nix build --impure ...`); modules and downstream flakes call
+    `lib.msvcPackages { acceptMicrosoftVisualStudioLicense = true; }` from their own config.
+  - Microsoft's files are never committed or redistributed. The pre-commit hook blocks `*.lib` and xwin caches.
+- **Toolchain (`nix/pkgs/msvc-toolchain.nix`):** a CMake toolchain file with `-fms-compatibility-version=19.44`,
+  `/Brepro`, static CRT, an `llvm-rc` wrapper (it needs `clang` on PATH to preprocess), and two MSVC-compatibility
+  switches: `-Wno-invalid-constexpr` and `-Wno-c++11-narrowing` (Dumper-7 emits `enum : uint8 { X_MAX = 256 }`, which
+  MSVC truncates with a warning).
+- **Verified:**
+  - Dumper-7 builds (`.#dumper7`).
+  - The 1.14.7 SDK dumped under Proton through `mystic_loader.ini`.
+  - `MysticParadox.dll` builds with 0 errors, importing only KERNEL32, USER32, SHELL32, ADVAPI32 and WS2_32.
+  - All ~225,000 Dumper-7 `static_assert`s on sizes, alignments and offsets pass under clang-cl. `SDK.hpp` includes
+    every header, and each expands its assertions, so every type's layout matches the live game's.
+- **Rejected:** option 2's ABI risk and porting cost; option 3's fragility.
+
+## D15 — Dumper-7: pinned, built locally, never redistributed (2026-11-13)
+- Commit `2c1eae30` (2026-10-26) is fetched from GitHub by hash. Upstream has no license file, so it is treated as
+  all rights reserved: built locally only, marked unfree, and allowed by name.
+- Two build fixes are applied in `postPatch`, both upstream CMake bugs: `cmake/common.cmake` vs `Common.cmake`
+  casing, and the CMake files pinning C++20 while the code (and upstream's `.vcxproj`) needs C++23.
+- It is injected through the loader's `mystic_loader.ini` with a `Dumper-7.ini` beside the exe (`SleepTimeout=45`,
+  `ShouldAutoUnload=1`, output outside the repo). The dump took 14 s and identified
+  `4.26.2-647472+++dauntless+rel-1.14.7`. It produced 3,704 headers and 1,266 `*_functions.cpp`.
+
+## D16 — CMake build for the runtime (2026-11-13)
+- `ParadoxRuntime/CMakeLists.txt` mirrors the Release|x64 `.vcxproj`: the same sources, the same nine SDK
+  translation units, the same P2P/anti-cheat conditions, `/MT`, C++23 and the same defines. `MP_SDK_DIR` points at
+  a Dumper-7 dump anywhere on disk. `MP_PUBLIC_HOST` generates `deployment_config.generated.h` in the build tree.
+  The `.vcxproj` stays the reference, so Windows users are unaffected.
+- Two portable one-line source fixes, both upstream candidates: `#include "networking.h"` changed to
+  `"Networking.h"`, and the `.rc` asset path changed from `assets\x.png` to `assets/x.png` (accepted by both
+  `rc.exe` and `llvm-rc`).
