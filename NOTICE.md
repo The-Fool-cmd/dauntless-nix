@@ -43,6 +43,17 @@ Pranav Karande includes, among other things:
 - Realtime XMPP presence/chat services.
 - Progression, inventory, store, matchmaking, party, and guild systems for 1.12.0.
 
+### Modified work — dauntless-nix (Linux/NixOS port)
+- Repository: https://github.com/The-Fool-cmd/dauntless-nix
+- Modified by The-Fool-cmd, beginning 12 November 2026.
+
+dauntless-nix is a **modified version** of Mystic Paradox (AGPLv3 §5, ADDITIONAL_TERMS §2). It is not an official
+release of the Mystic Paradox project and is not endorsed by its maintainers. Changes add Linux/NixOS packaging
+(Nix flake, NixOS modules, a Proton-based client path) and are recorded in `DECISIONS.md` and in the git history.
+
+"Mystic Paradox's Dauntless 1.12.0 and 1.14.7 ports and related modifications were developed by
+MysticFox / Pranav Karande. See NOTICE.md for contribution and provenance information."
+
 ### Runtime loader
 
 `tools/RuntimeLoader` is derived from
