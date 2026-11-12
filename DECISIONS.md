@@ -152,3 +152,21 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   separate injector.
 - **Gotcha:** Proton writes no log, and ignores `WINEDEBUG`, unless `SteamGameId` is set. The wrapper now defaults
   it to `dauntless-nix`.
+
+## D14 — C++ toolchain for Dumper-7, the runtime and CatalogExporter (PROPOSED 2026-11-13, awaiting license acceptance)
+- **Needs:** MSVC-dialect C++. The runtime uses `__try`/`__except` 70 times, MSVC intrinsics, `/MT` and `.vcxproj`
+  builds, and is linked against an SDK whose layout must match the MSVC-compiled game exactly.
+- **Options:**
+  1. **clang-cl + lld-link (LLVM 21, nixpkgs) with the MSVC CRT/STL and Windows SDK fetched by `xwin`** (nixpkgs
+     0.7.0). The download is pinned as a fixed-output derivation and never committed or redistributed. This gives the
+     same ABI and STL as upstream's MSVC builds, needs minimal source patches (upstream-friendly), and `xwin` creates
+     the case-variant symlinks that Windows-only code expects. It requires accepting Microsoft's license terms for
+     that download.
+  2. **clang or GCC for `x86_64-w64-mingw32`** (MinGW-w64, fully open source). clang does compile `__try` for this
+     target (tested). But it uses the Itanium C++ ABI, not MSVC's: tail-padding reuse and member-function-pointer and
+     return conventions can differ from the game. Only `Assertions.inl` would catch layout drift. It also needs a
+     case-shim include directory (Dumper-7 fails immediately on `Windows.h`) and more porting patches.
+  3. **MSVC under Wine.** It needs the same Microsoft license, and is slower and more fragile than option 1.
+- **Proposed:** option 1. Option 2 is the fallback if the license is declined.
+- **Upstream bug found:** Dumper-7's `CMakeLists.txt` includes `cmake/common.cmake`, but the file is `Common.cmake`
+  (fails on case-sensitive filesystems).
