@@ -31,7 +31,10 @@ async function Main(): Promise<void> {
     logger.warn({ error }, "Server runtime update failed; continuing with the installed DLL");
   }
 
-  app.listen(PORT, () => {
+  // BIND_HOST (optional, same key as the backend): the Director API has no authentication, so a deployment can
+  // bind it to loopback. Unset keeps the previous behaviour (all interfaces).
+  const BindHost = process.env.BIND_HOST?.trim() || undefined;
+  const OnListening = () => {
     void Startup().then(
       () => SetPersistentHubsReady(true),
       (error) => logger.error({ error }, "Persistent gameserver startup failed"),
@@ -40,9 +43,11 @@ async function Main(): Promise<void> {
     // unhandled rejection into process death (Node >=15), which is how a flapping training hub used to
     // take down matchmaking for the healthy Ramsgate hub.
     setInterval(() => { void RunWatchdog().catch((error) => logger.error({ error }, "Gameserver watchdog pass failed")); }, 60 * 1000);
-    logger.info(`Mystic Paradox DeployServer on port ${PORT}`);
+    logger.info(`Mystic Paradox DeployServer on ${BindHost ?? "*"}:${PORT}`);
     logger.info(`Clear Skies, Slayer.`);
-  });
+  };
+  if (BindHost) app.listen(Number(PORT), BindHost, OnListening);
+  else app.listen(PORT, OnListening);
 }
 
 void Main().catch((error) => {

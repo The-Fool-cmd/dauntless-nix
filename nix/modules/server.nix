@@ -113,7 +113,18 @@ in
     openFirewall = mkOption {
       type = types.bool;
       default = true;
-      description = "Open TCP 80 (pong) and 443 (HTTPS + XMPP WebSocket). Nothing else is opened by this module.";
+      description = "Open TCP 80 (pong) and 443 (HTTPS + XMPP WebSocket), plus the game UDP range when the Director is on.";
+    };
+
+    firewall.interfaces = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "enp10s0" ];
+      description = ''
+        Interfaces to open the player-facing ports on (the WireGuard interface, when enabled, is added on its own).
+        Empty = all interfaces (networking.firewall.allowed*). Hosts that scope their firewall per interface should
+        list their LAN interface here so nothing is opened on other segments (e.g. an IoT VLAN).
+      '';
     };
 
     backend = {
@@ -128,11 +139,6 @@ in
         default = [ ];
         description = "Extra env files with secrets (SMTP, Discord, TURN...). Kept outside the Nix store.";
       };
-    };
-
-    director.port = mkOption {
-      type = types.port; default = 3001;
-      description = "Loopback-only Director API port (the Director itself arrives in phase 2).";
     };
 
     tls = {
@@ -212,7 +218,7 @@ in
         ${lib.optionalString (cfg.tls.mode == "self-signed") ''
           if [ ! -s ${tlsDir}/privkey.pem ]; then
             openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 825 \
-              -subj "/CN=${cfg.publicHost}" -addext "subjectAltName=DNS:${cfg.publicHost}" \
+              -subj "/CN=${cfg.publicHost}" -addext "subjectAltName=${if builtins.match "[0-9.]+" cfg.publicHost != null then "IP" else "DNS"}:${cfg.publicHost}" \
               -keyout ${tlsDir}/privkey.pem -out ${tlsDir}/fullchain.pem
             chown root:nginx ${tlsDir}/privkey.pem ${tlsDir}/fullchain.pem
             chmod 0640 ${tlsDir}/privkey.pem; chmod 0644 ${tlsDir}/fullchain.pem
@@ -357,6 +363,8 @@ in
       "${cfg.publicHost}" = { webroot = "/var/lib/acme/acme-challenge"; group = "nginx"; };
     };
 
-    networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ 80 443 ];
+    networking.firewall = mkIf cfg.openFirewall (
+      if cfg.firewall.interfaces == [ ] then { allowedTCPPorts = [ 80 443 ]; }
+      else { interfaces = lib.genAttrs cfg.firewall.interfaces (_: { allowedTCPPorts = [ 80 443 ]; }); });
   };
 }

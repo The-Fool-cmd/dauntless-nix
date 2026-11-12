@@ -30,6 +30,11 @@
       msvcPackagesFor = p: rec {
         msvc-toolchain = p.callPackage ./nix/pkgs/msvc-toolchain.nix { };
         dumper7 = p.callPackage ./nix/pkgs/dumper7.nix { msvcToolchain = msvc-toolchain; };
+        # runtime { sdk = <CppSDK store path>; publicHost = "..."; }
+        runtime = args: p.callPackage ./nix/pkgs/runtime.nix ({
+          msvcToolchain = msvc-toolchain;
+          runtimeLoader = p.callPackage ./nix/pkgs/runtime-loader.nix { };
+        } // args);
       };
     in {
       packages.${system} = {
@@ -37,17 +42,21 @@
         gitleaks = pkgs.gitleaks; # used by nix/git-hooks/pre-commit, same pin as everything else
         backend = pkgs.callPackage ./nix/pkgs/backend.nix { };
         runtime-loader = pkgs.callPackage ./nix/pkgs/runtime-loader.nix { };
+        director = pkgs.callPackage ./nix/pkgs/director.nix { };
         gameserver-wine = pkgs.callPackage ./nix/pkgs/gameserver-wine.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
-      } // lib.optionalAttrs msvcAccepted (msvcPackagesFor pkgsMsvc);
+      } // lib.optionalAttrs msvcAccepted (removeAttrs (msvcPackagesFor pkgsMsvc) [ "runtime" ]);
 
       # For modules / downstream flakes: lib.msvcPackages { acceptMicrosoftVisualStudioLicense = true; }
       lib.msvcPackages = args: msvcPackagesFor (mkPkgs args);
 
       nixosModules.server = { lib, ... }: {
-        imports = [ ./nix/modules/server.nix ];
+        imports = [ ./nix/modules/server.nix ./nix/modules/director.nix ./nix/modules/wireguard.nix ];
         services.dauntless-nix.package = lib.mkDefault self.packages.${system}.backend;
+        services.dauntless-nix.director.package = lib.mkDefault self.packages.${system}.director;
+        services.dauntless-nix.director.gameserverBinary =
+          lib.mkDefault (lib.getExe self.packages.${system}.gameserver-wine);
       };
 
       checks.${system}.server = import ./nix/tests/server.nix { inherit self pkgs; };
