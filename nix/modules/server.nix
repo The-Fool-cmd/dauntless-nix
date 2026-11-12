@@ -65,6 +65,12 @@ let
     REALTIME_XMPP_ALLOWED_HOSTS = cfg.publicHost;
     REALTIME_XMPP_DEV_CITY_MUC = "false";
     MYSTICPARADOX_ADMIN_API = "off";
+    # Upstream's Terms/Privacy consent belongs to the official Mystic Paradox service; a private server's operator sets
+    # its own rules (upstream's own default for local servers). Not asking players to accept Mystic Paradox's documents
+    # also avoids implying this server is theirs (ADDITIONAL_TERMS 2-4).
+    MYSTICPARADOX_CONSENT_REQUIRED = "off";
+    MYSTICPARADOX_CONSENT_ENFORCE = "off";
+    MYSTICPARADOX_EMAIL_VERIFICATION = "off";    # no SMTP; accounts are created by the operator's own players
     LOG_LEVEL = "info";
   } // cfg.backend.extraEnvironment;
 
@@ -155,6 +161,16 @@ in
       keyFile = mkOption { type = types.nullOr types.path; default = null; };
     };
 
+    runtime = mkOption {
+      type = types.nullOr types.package;
+      default = null;
+      description = ''
+        Package with MysticParadox.dll + winmm.dll (flake: lib.msvcPackages { ... }.runtime { sdk; publicHost; }).
+        Published, signed with this server's runtime key, to the backend's runtime feed for clients, and installed
+        beside the Director's game servers.
+      '';
+    };
+
     mongodb.uid = mkOption {
       type = types.int;
       default = 27017;
@@ -236,6 +252,32 @@ in
             if [ ! -e "$dest" ]; then install -o dauntless -g dauntless -m 0640 "$f" "$dest"; fi
           done
         ''}
+      '';
+    };
+
+    # ---- runtime feed: sign + publish the Nix-built runtime for clients (upstream publish-runtime-update.mjs) ----
+    systemd.services.dauntless-runtime-publish = mkIf (cfg.runtime != null) {
+      description = "dauntless-nix: sign and publish the client runtime to the update feed";
+      wantedBy = [ "multi-user.target" ];
+      before = [ "dauntless-backend.service" ];
+      after = [ "dauntless-nix-init.service" ];
+      requires = [ "dauntless-nix-init.service" ];
+      path = [ pkgs.nodejs_22 pkgs.coreutils ];
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; User = "dauntless"; Group = "dauntless"; UMask = "0077"; };
+      script = ''
+        set -euo pipefail
+        key=${cfg.stateDir}/secrets/runtime-signing
+        if [ ! -s "$key.private.pem" ]; then
+          node ${../../ParadoxLauncher/scripts/generate-runtime-key.mjs} "$key"
+        fi
+        # Clients pin this (services.dauntless-nix-client.runtimePublicKey). Not secret.
+        install -m 0644 "$key.public.raw.b64" ${cfg.stateDir}/updates/runtime-public-key.b64
+        echo "runtime signing public key: $(cat "$key.public.raw.b64")"
+        sha=$(sha256sum ${cfg.runtime}/MysticParadox.dll | cut -c1-12)
+        node ${../../ParadoxLauncher/scripts/publish-runtime-update.mjs} \
+          --dll ${cfg.runtime}/MysticParadox.dll --extra ${cfg.runtime}/winmm.dll \
+          --target client --version "1.0.0-nix.$sha" --changelist 647472 --channel stable \
+          --output ${cfg.stateDir}/updates --base-url https://${cfg.publicHost} --key "$key.private.pem"
       '';
     };
 

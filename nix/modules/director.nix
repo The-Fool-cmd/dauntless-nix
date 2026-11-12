@@ -86,12 +86,6 @@ in
       '';
     };
 
-    runtime = mkOption {
-      type = types.nullOr types.package;
-      default = null;
-      description = "Package with MysticParadox.dll + winmm.dll (flake lib.msvcPackages ... .runtime { sdk; publicHost; }).";
-    };
-
     serverBackendUrl = mkOption {
       type = types.nullOr types.str;
       default = "http://127.0.0.1:${toString cfg.backend.port}";
@@ -104,8 +98,8 @@ in
 
   config = mkIf (cfg.enable && dcfg.enable) {
     assertions = [
-      { assertion = dcfg.gameDir == null || dcfg.runtime != null;
-        message = "services.dauntless-nix.director.gameDir needs director.runtime (MysticParadox.dll + winmm.dll)."; }
+      { assertion = dcfg.gameDir == null || cfg.runtime != null;
+        message = "services.dauntless-nix.director.gameDir needs services.dauntless-nix.runtime (MysticParadox.dll + winmm.dll)."; }
       { assertion = dcfg.portRange.to - dcfg.portRange.from >= 2;
         message = "services.dauntless-nix.director.portRange needs at least three ports (hunts, Training Grounds, Ramsgate)."; }
     ];
@@ -157,9 +151,13 @@ in
           chown dauntless-director:dauntless-director ${win64}
           chmod 0750 ${win64}
           for f in MysticParadox.dll winmm.dll; do
-            install -o dauntless-director -g dauntless-director -m 0644 ${dcfg.runtime}/$f ${win64}/$f
+            install -o dauntless-director -g dauntless-director -m 0644 ${cfg.runtime}/$f ${win64}/$f
           done
           rm -f ${win64}/mystic_loader.ini ${win64}/MystPaxInternalServer.dll   # nothing else gets injected
+          # This is a modified build, not an official Mystic Paradox release (ADDITIONAL_TERMS 2-4): stock screens.
+          for f in LOGIN CREDITS PRESS_START; do
+            install -o dauntless-director -g dauntless-director -m 0644 /dev/null ${win64}/DISABLE_''${f}_BRANDING.flag
+          done
         ''}
       '';
     };

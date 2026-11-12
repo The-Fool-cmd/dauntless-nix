@@ -43,6 +43,7 @@
         backend = pkgs.callPackage ./nix/pkgs/backend.nix { };
         runtime-loader = pkgs.callPackage ./nix/pkgs/runtime-loader.nix { };
         director = pkgs.callPackage ./nix/pkgs/director.nix { };
+        launcher = pkgs.callPackage ./nix/pkgs/launcher.nix { };
         gameserver-wine = pkgs.callPackage ./nix/pkgs/gameserver-wine.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
@@ -57,6 +58,15 @@
         services.dauntless-nix.director.package = lib.mkDefault self.packages.${system}.director;
         services.dauntless-nix.director.gameserverBinary =
           lib.mkDefault (lib.getExe self.packages.${system}.gameserver-wine);
+      };
+
+      nixosModules.client = { lib, ... }: {
+        imports = [ ./nix/modules/client.nix ];
+        services.dauntless-nix-client = {
+          launcherPackage = lib.mkDefault self.packages.${system}.launcher;
+          protonRunPackage = lib.mkDefault self.packages.${system}.proton-run;
+          legendaryPackage = lib.mkDefault self.packages.${system}.legendary;
+        };
       };
 
       checks.${system}.server = import ./nix/tests/server.nix { inherit self pkgs; };

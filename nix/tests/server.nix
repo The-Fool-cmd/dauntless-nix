@@ -5,6 +5,7 @@
 #   lan:    a LAN player, also running an unrelated LAN service
 #   remote: a remote player on the internet side, reaching the server only through WireGuard
 { self, pkgs }:
+let lib = pkgs.lib; in
 let
   wgServerIp = "10.77.0.1";
   host = wgServerIp;   # no domain (D12): players use the tunnel address everywhere
@@ -14,6 +15,16 @@ let
     for n in server remote; do wg genkey > $out/$n.key; wg pubkey < $out/$n.key | tr -d '\n' > $out/$n.pub; done
   '';
   pub = n: builtins.readFile "${wgKeys}/${n}.pub";
+  # A stand-in game install and runtime: the real ones are game-derived and never part of a test.
+  fakeGame = pkgs.runCommand "fake-dauntless" { } ''
+    mkdir -p $out/Archon/Binaries/Win64
+    echo "not Dauntless: dauntless-nix test fixture" > $out/Archon/Binaries/Win64/Dauntless-Win64-Shipping.exe
+    echo "dauntless_rel-1.14.7_Shipping_test_647472" > $out/Version.txt
+  '';
+  fakeExeSha256 = builtins.hashFile "sha256" "${fakeGame}/Archon/Binaries/Win64/Dauntless-Win64-Shipping.exe";
+  fakeRuntime = pkgs.runCommand "fake-runtime" { } ''
+    mkdir $out; echo "fake MysticParadox.dll" > $out/MysticParadox.dll; echo "fake winmm.dll" > $out/winmm.dll
+  '';
   # Stands in for Dauntless under Wine: prints the runtime's ready marker for the port it is given, then idles.
   stubGameServer = pkgs.writeShellScript "stub-gameserver" ''
     echo "stub game server: map=$3 port=$2"
@@ -35,6 +46,8 @@ in pkgs.testers.runNixOSTest {
       publicHost = host;
       syntheticGameData = true;
       firewall.interfaces = [ "eth2" ];
+      runtime = fakeRuntime;
+      approvedExecutableSha256 = fakeExeSha256;
       director = {
         enable = true;
         port = 3011;                      # 3001 is taken on the real server (Uptime Kuma)
@@ -58,9 +71,15 @@ in pkgs.testers.runNixOSTest {
   };
 
   nodes.lan = { nodes, pkgs, ... }: {
+    imports = [ self.nixosModules.client ];
     virtualisation.vlans = [ 2 ];
-    # LAN players reach the tunnel address through the server's LAN address (a static route in the client module).
-    # /24 (not just the server /32) so a reply path to tunnel peers exists: only the forward guard can stop them.
+    services.dauntless-nix-client = {
+      enable = true;
+      serverAddress = wgServerIp;
+      runtimePublicKey = "unused-in-this-node";
+      lanRoute = { enable = true; via = serverLanIp nodes; };
+    };
+    # The test also needs a return path to tunnel peers on this LAN host (for the forward-guard check).
     networking.interfaces.eth1.ipv4.routes = [ { address = "10.77.0.0"; prefixLength = 24; via = serverLanIp nodes; } ];
     # An unrelated service elsewhere on the home LAN: must not be reachable from the tunnel.
     networking.firewall.allowedTCPPorts = [ 9999 ];
@@ -72,19 +91,30 @@ in pkgs.testers.runNixOSTest {
   };
 
   nodes.remote = { nodes, pkgs, ... }: {
+    imports = [ self.nixosModules.client ];
     virtualisation.vlans = [ 1 ];
-    networking.wireguard.interfaces.wg0 = {
-      ips = [ "10.77.0.2/32" ];
-      privateKeyFile = "${wgKeys}/remote.key";
-      peers = [ {
-        publicKey = pub "server";
-        # A hostile peer also routes the home LAN into the tunnel; the server must not forward it.
-        allowedIPs = [ "${wgServerIp}/32" "192.168.2.0/24" ];
+    services.dauntless-nix-client = {
+      enable = true;
+      serverAddress = wgServerIp;
+      runtimePublicKey = "set-at-test-time";
+      gameDir = "${fakeGame}";
+      wireguard = {
+        enable = true;
+        address = "10.77.0.2/32";
+        privateKeyFile = "${wgKeys}/remote.key";
+        serverPublicKey = pub "server";
         endpoint = "${serverInetIp nodes}:51821";
-        persistentKeepalive = 5;
-      } ];
+      };
     };
-    environment.systemPackages = [ pkgs.curl pkgs.netcat-openbsd ];
+    # A hostile variant of the peer also routes the home LAN into the tunnel; the server must not forward it.
+    networking.wireguard.interfaces.wg-dauntless.peers = lib.mkForce [ {
+      publicKey = pub "server";
+      allowedIPs = [ "${wgServerIp}/32" "192.168.2.0/24" ];
+      endpoint = "${serverInetIp nodes}:51821";
+      persistentKeepalive = 5;
+    } ];
+    users.users.alice = { isNormalUser = true; };
+    environment.systemPackages = [ pkgs.curl pkgs.netcat-openbsd pkgs.jq ];
   };
 
   testScript = { nodes, ... }: let serverLan = serverLanIp nodes; lanHost = ipOn 1 nodes.lan; in ''
@@ -132,6 +162,44 @@ in pkgs.testers.runNixOSTest {
 
     with subtest("Remote player cannot reach the server at all outside the tunnel"):
         remote.fail("nc -z -w 3 ${serverInetIp nodes} 443")
+
+    with subtest("Server signed and published the runtime feed"):
+        server.wait_for_unit("dauntless-runtime-publish.service")
+        key = server.succeed("cat /var/lib/dauntless-nix/updates/runtime-public-key.b64").strip()
+        cert = server.succeed("cat /var/lib/dauntless-nix-tls/fullchain.pem")
+        manifest = json.loads(remote.succeed("curl -skf https://${host}/launcher/v1/runtime/stable/windows-x86_64"))
+        assert manifest["targetChangelist"] == 647472 and {e["name"] for e in manifest["extraFiles"]} == {"winmm.dll"}, manifest
+
+    with subtest("Launcher on the remote player: register, login, signed runtime sync, game session"):
+        remote.succeed("cat > /tmp/server.pem <<'EOF'\n" + cert + "EOF\n")
+        cfg = json.loads(remote.succeed("cat /etc/dauntless-nix/config.json"))
+        cfg.update({"runtimePublicKey": key, "caCertFile": "/tmp/server.pem", "approvedExeSha256": "${fakeExeSha256}",
+                    "instanceDir": "/home/alice/game/instance", "protonPrefix": "/home/alice/game/prefix"})
+        remote.succeed("cat > /tmp/launcher.json <<'EOF'\n" + json.dumps(cfg) + "\nEOF\n")
+        run = "sudo -u alice env DAUNTLESS_NIX_CONFIG=/tmp/launcher.json DAUNTLESS_NIX_PASSWORD=correct-horse-battery-9 dauntless-nix-launcher"
+        print(remote.succeed(f"{run} status"))
+        print(remote.succeed(f"{run} register --email alice@example.test --name AliceSlayer"))
+        print(remote.succeed(f"{run} login --email alice@example.test"))
+        remote.succeed("test \"$(stat -c %a /home/alice/.local/state/dauntless-nix/session.json)\" = 600")
+        print(remote.succeed(f"{run} sync"))
+        remote.succeed("cmp /home/alice/game/instance/Archon/Binaries/Win64/MysticParadox.dll ${fakeRuntime}/MysticParadox.dll")
+        remote.succeed("cmp /home/alice/game/instance/Archon/Binaries/Win64/winmm.dll ${fakeRuntime}/winmm.dll")
+        remote.succeed("test -e /home/alice/game/instance/Archon/Binaries/Win64/DISABLE_LOGIN_BRANDING.flag")
+        out = json.loads(remote.succeed(f"{run} play --dry-run").strip().splitlines()[-1])
+        print(out)
+        assert out["exchangeCodeIssued"] and out["backendUrl"] == "https://${host}", out
+        assert "-AUTH_TYPE=exchangecode" in out["args"] and "-NoEAC" in out["args"], out
+
+    with subtest("Launcher refuses a runtime whose signature does not verify"):
+        bad = dict(cfg); bad["runtimePublicKey"] = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+        bad["instanceDir"] = "/home/alice/game/instance2"
+        remote.succeed("cat > /tmp/bad.json <<'EOF'\n" + json.dumps(bad) + "\nEOF\n")
+        err = remote.fail("sudo -u alice env DAUNTLESS_NIX_CONFIG=/tmp/bad.json dauntless-nix-launcher sync 2>&1")
+        assert "signature does not verify" in err, err
+
+    with subtest("LAN player reaches the tunnel address through the client module's route"):
+        lan.wait_for_unit("dauntless-nix-lan-route.service")
+        lan.succeed("ip route get ${wgServerIp} | grep -q 'via ${serverLanIp nodes}'")
 
     with subtest("Stopping the Director stops its game servers"):
         server.succeed("systemctl stop dauntless-director.service")
