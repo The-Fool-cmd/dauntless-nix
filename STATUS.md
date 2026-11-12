@@ -7,9 +7,9 @@ servers at run time. Phases are listed in order; each one gates the next.
 |---|---|
 | 0. Feasibility: 1.14.7 client under Proton | ✅ Done 2026-11-12 |
 | 1. Backend + MongoDB + TLS on NixOS | ✅ Done in VM test 2026-11-13; deploy to the server with phase 5 |
-| 2. Game-server topology (Director+Wine vs realms+coturn) | ⏭ Next |
-| 3. Linux client path (launcher) | Not started |
-| 4. Runtime DLLs without Windows | Not started |
+| 2. Game-server topology (Director+Wine vs realms+coturn) | ✅ Decided 2026-11-13: dedicated hubs/hunts under Wine (D17) |
+| 3. Linux client path (launcher) | ⏭ Next |
+| 4. Runtime DLLs without Windows | ✅ Builds (D13, D14, D16); in-game client test pending |
 | 5. End to end, two players over the internet | Not started |
 | 6. Package and harden | Not started |
 
@@ -30,6 +30,13 @@ servers at run time. Phases are listed in order; each one gates the next.
   passes with synthetic data: pong on 80; HTTPS `/`, `/QoS` and launcher status `647472`; only 80 and 443
   reachable; MongoDB socket-only; secrets `0600`; clean log; survives a restart.
 
+- Phase 2 and 4 work (details in DECISIONS D12–D18):
+  - `winmm.dll` is cross-built with MinGW and verified loading DLLs inside the 1.14.7 process under Proton.
+  - Dumper-7 is built with clang-cl and the MSVC SDK, injected through `mystic_loader.ini`; the SDK dumped in 14 s.
+  - `MysticParadox.dll` builds with 0 errors, and all ~225k SDK layout `static_assert`s pass under clang-cl.
+  - A headless Ramsgate or Training Grounds server under Wine prints `MYSTICPARADOX_GAMESERVER_READY`.
+  - `dauntless-gameserver` (the Director's `GAMESERVER_BINARY_PATH`) has a ready → SIGTERM → clean-exit cycle.
+
 ## Doesn't work / not yet checked
 - Only about 48 s of runtime so far; no long soak.
 - The shipping build writes no Unreal log (`Archon.log` holds only open/close lines). Diagnosis will rely on the
@@ -43,13 +50,12 @@ servers at run time. Phases are listed in order; each one gates the next.
 ## Known risks
 - `progression_config.source.json` and `ladyluck_store.source.json` must be *supplied* (captured from the live
   service). They cannot be generated from the client. They may have to be written by hand as minimal valid files.
-- The SDK (Dumper-7) and game data (CatalogExporter) are produced by DLLs injected into the running client, which
-  needs an MSVC-compatible C++ toolchain. The phase-4 decision therefore partly blocks real game data.
 - Epic can remove the 1.14.7 chunks from its CDN at any time. A local pristine copy exists; an off-disk backup is
   still to do.
 
 ## Next
-1. Phase 2: decide between dedicated hubs and hunts (Director + Wine on the server) and realms + coturn.
-   - Topology: the server is the server; the user plays from a desktop PC on the same LAN, and the friend plays
-     from another continent.
-   - Prototype: headless `-server -nullrhi` boot under Wine/Proton (needs the runtime DLL for the readiness line).
+1. Director packaging and NixOS module (systemd, per-port prefixes under the state dir, the game copy on the server).
+2. Phase 3: the client path. Sign-in and session exchange against our backend, then start the game under Proton
+   with `winmm=n,b` and `MYSTICPARADOX_BACKEND_URL`. Decide on porting the launcher vs a minimal Linux launcher.
+3. Phase 1 follow-up: the WireGuard interface for the remote player (D12).
+4. Real game data. CatalogExporter can now be built with the same toolchain and injected the same way.

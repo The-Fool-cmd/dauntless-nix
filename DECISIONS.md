@@ -196,3 +196,45 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - Two portable one-line source fixes, both upstream candidates: `#include "networking.h"` changed to
   `"Networking.h"`, and the `.rc` asset path changed from `assets\x.png` to `assets/x.png` (accepted by both
   `rc.exe` and `llvm-rc`).
+
+## D17 — Game-server topology: dedicated hubs and hunts on the server under Wine (2026-11-13)
+- **Options:**
+  - (a) ParadoxDirector on the server, starting Ramsgate, the Training Grounds and hunts as headless Wine
+    processes;
+  - (b) Paradox realms, where a player's PC hosts hubs and hunts over ICE/TURN (coturn).
+- **Prototype results for (a)**, on a desktop PC with no display (`DISPLAY`/`WAYLAND_DISPLAY` unset), using the
+  runtime built in D14/D16 and the MinGW loader from D13:
+  - Ramsgate and the Training Grounds boot with `-server -nullrhi`. The runtime logs `Networking::Listen returned
+    true`, UDP 8790 or 8789 opens, and the exact `MYSTICPARADOX_GAMESERVER_READY launchId=<id> port=<port>` line
+    reaches stdout.
+  - Through the wrapper (D18), a server is ready in 14 s including first-time prefix creation and uses about
+    1.4 GB RSS (Training Grounds). It stops cleanly within 2 s of SIGTERM.
+  - Launched through Proton's `waitforexitandrun` instead, the server also boots, but the ready line never reaches
+    stdout, because Proton's `steam.exe` shim does not pass Unix stdio through. That is why the wrapper uses Proton's
+    `wine` directly.
+- **Against (b):**
+  - In the public code, player-hosted hunts earn no rewards: the backend logs `[AntiCheat] module not present;
+    player-hosted hunts are unmonitored and earn no rewards`, because the anti-cheat module is not published. That
+    fails the "progression saved" goal.
+  - Realm hosting lives in the Windows-only Tauri launcher plus the ParadoxTransport DLL, which would all need
+    porting.
+  - Latency: with one player on the server's LAN and one remote, hosting on either player's PC is no better than
+    hosting on the server.
+- **Chosen:** (a). The ParadoxDirector code needs no changes: it already starts `GAMESERVER_BINARY_PATH`, reads its
+  stdout, stops it with a signal and probes `kill(pid, 0)`. Its only Windows-only path (`tasklist.exe`, in the runtime
+  self-updater) is already skipped on non-Windows and off by default.
+- **Capacity:** about 1.4–2 GB per server. Two hubs plus `MAX_CONCURRENT_HUNT_SERVERS` hunts, sized to the server's
+  RAM.
+
+## D18 — `dauntless-gameserver` wrapper (2026-11-13)
+- `nix/pkgs/gameserver-wine.nix` is the Director's `GAMESERVER_BINARY_PATH`. It runs the exe with the pinned
+  GE-Proton's own `wine` inside `steam-run`, with:
+  - `WINEDLLPATH=<proton>/lib/vkd3d:<proton>/lib/wine`, because the exe statically imports d3d11/dxgi even with
+    `-nullrhi`;
+  - `winmm=n,b`;
+  - the display unset.
+- It keeps **one prefix per port**, created on first use. Each server then has its own wineserver, so the Director's
+  SIGTERM stops exactly that server through `wineserver -k`. Killing `wine` alone can leave the Windows process
+  running.
+- It changes into the game folder before calling `steam-run`, because the sandbox re-enters the caller's working
+  directory, which may not exist inside it (seen with `/etc/nixos`).
