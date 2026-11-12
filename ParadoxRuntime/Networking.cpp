@@ -9,7 +9,7 @@
  * Additional terms under AGPLv3 Section 7 apply. See ADDITIONAL_TERMS.md.
  */
 
-#include "networking.h"
+#include "Networking.h"
 #include "P2PHooks.h"
 
 #include <fstream>

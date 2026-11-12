@@ -112,3 +112,129 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   - that the secrets file is `0600`;
   - that the backend log has no errors and the backend survives a restart.
 - **Why:** this tests the declarative config without touching any real machine.
+
+## D12 — No domain: a remote player reaches the server over WireGuard (2026-11-13)
+- **Context:** there is no owned domain. Upstream's model is a public DNS name, publicly trusted TLS on 443, 80 open
+  for the pong page, and a public UDP game range.
+- **Finding:** the runtime reads `MYSTICPARADOX_BACKEND_URL` (`ParadoxRuntime/BackendUrl.h`): `http` or `https`, a DNS
+  name or an IPv4/IPv6 literal, with an optional port. It replaces the compiled-in `https://MP_PUBLIC_HOST` for API
+  calls and chat. A client can therefore be pointed at an address with no DNS at all. The launcher is ours to build
+  (phase 3), so its trust store is ours to choose too.
+- **Options:**
+  1. A free dynamic-DNS name plus Let's Encrypt, with 80, 443 and UDP public. This depends on a third-party DNS
+     provider at run time and exposes the most.
+  2. A public IP and a self-signed certificate, with 80, 443 and UDP public. This breaks whenever the home IP
+     changes, and still exposes everything.
+  3. The remote player as a peer on the existing router WireGuard server. Stock firmware gives a peer all or nothing
+     of the LAN.
+  4. A dedicated WireGuard interface on the server, used only by players.
+- **Chosen:** option 4. The server module gains an opt-in `wg-dauntless` interface. Its firewall allows only the
+  backend (80/443) and game UDP on that interface. The only public exposure is one forwarded UDP port (a human step at
+  the router). LAN players connect directly. Clients get the server address through `MYSTICPARADOX_BACKEND_URL`.
+- **Why:** no domain and no third-party DNS; less exposure than upstream's model; the remote player can reach only
+  the game ports, not the LAN.
+- **Open:** whether the game's HTTP client accepts a self-signed certificate (otherwise plain HTTP, which inside the
+  tunnel is encrypted by WireGuard and on the LAN is local only), to be decided in phase 3. If the home IP is dynamic,
+  the peer's `Endpoint` needs updating when it changes.
+
+## D13 — RuntimeLoader (`winmm.dll`) is cross-built with MinGW (2026-11-13)
+- **Chosen:** `nix/pkgs/runtime-loader.nix` builds `tools/RuntimeLoader` for `x86_64-pc-windows-gnu`
+  (`pkgsCross.mingwW64.rustPlatform`, stable Rust, `+crt-static`) instead of upstream's 2026-03 nightly MSVC build.
+- **Checked:**
+  - Its imports are only system DLLs (kernel32, ntdll, msvcrt, bcryptprimitives, api-ms-win-core-synch).
+  - It exports 198 functions, including all four the game imports from winmm.
+  - Under the pinned Proton with `WINEDLLOVERRIDES=winmm=n,b`, the game loads it as native from the game folder, it
+    forwards to the builtin winmm, and it loads DLLs listed in `mystic_loader.ini`. This was verified inside the real
+    1.14.7 process with a probe DLL that writes a marker file.
+- **Why:** the crate is pure Rust plus winapi, with no MSVC-specific link steps, so it needs neither the MSVC
+  toolchain nor the Windows SDK.
+- **Consequence:** `mystic_loader.ini` gives a way to inject Dumper-7 and CatalogExporter under Proton without a
+  separate injector.
+- **Gotcha:** Proton writes no log, and ignores `WINEDEBUG`, unless `SteamGameId` is set. The wrapper now defaults
+  it to `dauntless-nix`.
+
+## D14 — C++ toolchain: clang-cl + lld-link + MSVC CRT/Windows SDK (ACCEPTED 2026-11-13)
+- **Needs:** MSVC-dialect C++. The runtime uses `__try`/`__except` 70 times, MSVC intrinsics, `/MT` and `.vcxproj`
+  builds, and is linked against an SDK whose layout must match the MSVC-compiled game exactly.
+- **Options:**
+  1. clang-cl + lld-link (LLVM 21) with the MSVC CRT/STL and Windows SDK fetched by `xwin`.
+  2. clang or GCC for MinGW-w64 (open source, but the Itanium C++ ABI, case-shim includes and more porting).
+  3. MSVC under Wine.
+- **Chosen:** option 1. The repo owner accepted Microsoft's license terms for the xwin download on 2026-11-13.
+  - nixpkgs' own `windows.sdk` (xwin, pinned VS 17.14 manifest and hash; CRT 14.44, SDK 10.0.26100) is used, gated
+    by `config.microsoftVisualStudioLicenseAccepted`.
+  - **This flake never accepts the license for anyone.** CLI builds opt in per command
+    (`DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE=1 nix build --impure ...`); modules and downstream flakes call
+    `lib.msvcPackages { acceptMicrosoftVisualStudioLicense = true; }` from their own config.
+  - Microsoft's files are never committed or redistributed. The pre-commit hook blocks `*.lib` and xwin caches.
+- **Toolchain (`nix/pkgs/msvc-toolchain.nix`):** a CMake toolchain file with `-fms-compatibility-version=19.44`,
+  `/Brepro`, static CRT, an `llvm-rc` wrapper (it needs `clang` on PATH to preprocess), and two MSVC-compatibility
+  switches: `-Wno-invalid-constexpr` and `-Wno-c++11-narrowing` (Dumper-7 emits `enum : uint8 { X_MAX = 256 }`, which
+  MSVC truncates with a warning).
+- **Verified:**
+  - Dumper-7 builds (`.#dumper7`).
+  - The 1.14.7 SDK dumped under Proton through `mystic_loader.ini`.
+  - `MysticParadox.dll` builds with 0 errors, importing only KERNEL32, USER32, SHELL32, ADVAPI32 and WS2_32.
+  - All ~225,000 Dumper-7 `static_assert`s on sizes, alignments and offsets pass under clang-cl. `SDK.hpp` includes
+    every header, and each expands its assertions, so every type's layout matches the live game's.
+- **Rejected:** option 2's ABI risk and porting cost; option 3's fragility.
+
+## D15 — Dumper-7: pinned, built locally, never redistributed (2026-11-13)
+- Commit `2c1eae30` (2026-10-26) is fetched from GitHub by hash. Upstream has no license file, so it is treated as
+  all rights reserved: built locally only, marked unfree, and allowed by name.
+- Two build fixes are applied in `postPatch`, both upstream CMake bugs: `cmake/common.cmake` vs `Common.cmake`
+  casing, and the CMake files pinning C++20 while the code (and upstream's `.vcxproj`) needs C++23.
+- It is injected through the loader's `mystic_loader.ini` with a `Dumper-7.ini` beside the exe (`SleepTimeout=45`,
+  `ShouldAutoUnload=1`, output outside the repo). The dump took 14 s and identified
+  `4.26.2-647472+++dauntless+rel-1.14.7`. It produced 3,704 headers and 1,266 `*_functions.cpp`.
+
+## D16 — CMake build for the runtime (2026-11-13)
+- `ParadoxRuntime/CMakeLists.txt` mirrors the Release|x64 `.vcxproj`: the same sources, the same nine SDK
+  translation units, the same P2P/anti-cheat conditions, `/MT`, C++23 and the same defines. `MP_SDK_DIR` points at
+  a Dumper-7 dump anywhere on disk. `MP_PUBLIC_HOST` generates `deployment_config.generated.h` in the build tree.
+  The `.vcxproj` stays the reference, so Windows users are unaffected.
+- Two portable one-line source fixes, both upstream candidates: `#include "networking.h"` changed to
+  `"Networking.h"`, and the `.rc` asset path changed from `assets\x.png` to `assets/x.png` (accepted by both
+  `rc.exe` and `llvm-rc`).
+
+## D17 — Game-server topology: dedicated hubs and hunts on the server under Wine (2026-11-13)
+- **Options:**
+  - (a) ParadoxDirector on the server, starting Ramsgate, the Training Grounds and hunts as headless Wine
+    processes;
+  - (b) Paradox realms, where a player's PC hosts hubs and hunts over ICE/TURN (coturn).
+- **Prototype results for (a)**, on a desktop PC with no display (`DISPLAY`/`WAYLAND_DISPLAY` unset), using the
+  runtime built in D14/D16 and the MinGW loader from D13:
+  - Ramsgate and the Training Grounds boot with `-server -nullrhi`. The runtime logs `Networking::Listen returned
+    true`, UDP 8790 or 8789 opens, and the exact `MYSTICPARADOX_GAMESERVER_READY launchId=<id> port=<port>` line
+    reaches stdout.
+  - Through the wrapper (D18), a server is ready in 14 s including first-time prefix creation and uses about
+    1.4 GB RSS (Training Grounds). It stops cleanly within 2 s of SIGTERM.
+  - Launched through Proton's `waitforexitandrun` instead, the server also boots, but the ready line never reaches
+    stdout, because Proton's `steam.exe` shim does not pass Unix stdio through. That is why the wrapper uses Proton's
+    `wine` directly.
+- **Against (b):**
+  - In the public code, player-hosted hunts earn no rewards: the backend logs `[AntiCheat] module not present;
+    player-hosted hunts are unmonitored and earn no rewards`, because the anti-cheat module is not published. That
+    fails the "progression saved" goal.
+  - Realm hosting lives in the Windows-only Tauri launcher plus the ParadoxTransport DLL, which would all need
+    porting.
+  - Latency: with one player on the server's LAN and one remote, hosting on either player's PC is no better than
+    hosting on the server.
+- **Chosen:** (a). The ParadoxDirector code needs no changes: it already starts `GAMESERVER_BINARY_PATH`, reads its
+  stdout, stops it with a signal and probes `kill(pid, 0)`. Its only Windows-only path (`tasklist.exe`, in the runtime
+  self-updater) is already skipped on non-Windows and off by default.
+- **Capacity:** about 1.4–2 GB per server. Two hubs plus `MAX_CONCURRENT_HUNT_SERVERS` hunts, sized to the server's
+  RAM.
+
+## D18 — `dauntless-gameserver` wrapper (2026-11-13)
+- `nix/pkgs/gameserver-wine.nix` is the Director's `GAMESERVER_BINARY_PATH`. It runs the exe with the pinned
+  GE-Proton's own `wine` inside `steam-run`, with:
+  - `WINEDLLPATH=<proton>/lib/vkd3d:<proton>/lib/wine`, because the exe statically imports d3d11/dxgi even with
+    `-nullrhi`;
+  - `winmm=n,b`;
+  - the display unset.
+- It keeps **one prefix per port**, created on first use. Each server then has its own wineserver, so the Director's
+  SIGTERM stops exactly that server through `wineserver -k`. Killing `wine` alone can leave the Windows process
+  running.
+- It changes into the game folder before calling `steam-run`, because the sandbox re-enters the caller's working
+  directory, which may not exist inside it (seen with `/etc/nixos`).

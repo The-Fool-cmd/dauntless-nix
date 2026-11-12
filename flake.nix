@@ -7,19 +7,43 @@
   outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
-      pkgs = import nixpkgs {
+      lib = nixpkgs.lib;
+
+      # Unfree pieces, each allowed by name: the Steam FHS runtime that hosts Proton, Microsoft's SDK (separately gated
+      # by its own license switch below), and Dumper-7 (no upstream license: build locally, never redistribute).
+      unfreeAllowed = [ "steam" "steam-run" "steam-unwrapped" "win-sdk" "xwin-fetch-msvc" "dumper7" ];
+
+      # Microsoft's license for the MSVC CRT/Windows SDK download must be accepted by whoever builds, never inherited
+      # from this repo. Modules pass it explicitly; CLI builds opt in per command:
+      #   DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE=1 nix build --impure .#dumper7
+      mkPkgs = { acceptMicrosoftVisualStudioLicense ? false }: import nixpkgs {
         inherit system;
-        # Only the Steam FHS runtime used to host Proton is unfree.
-        config.allowUnfreePredicate = p: builtins.elem (nixpkgs.lib.getName p) [ "steam" "steam-run" "steam-unwrapped" ];
+        config.allowUnfreePredicate = p: builtins.elem (lib.getName p) unfreeAllowed;
+        config.microsoftVisualStudioLicenseAccepted = acceptMicrosoftVisualStudioLicense;
+      };
+      pkgs = mkPkgs { };
+      # Only true for `DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE=1 nix ... --impure`. Pure evaluation (nix flake check, CI,
+      # anyone who has not opted in) never sees the MSVC packages, so nothing evaluates the license gate.
+      msvcAccepted = builtins.getEnv "DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE" == "1";
+      pkgsMsvc = mkPkgs { acceptMicrosoftVisualStudioLicense = msvcAccepted; };
+
+      msvcPackagesFor = p: rec {
+        msvc-toolchain = p.callPackage ./nix/pkgs/msvc-toolchain.nix { };
+        dumper7 = p.callPackage ./nix/pkgs/dumper7.nix { msvcToolchain = msvc-toolchain; };
       };
     in {
       packages.${system} = {
         legendary = pkgs.callPackage ./nix/pkgs/legendary.nix { };
         gitleaks = pkgs.gitleaks; # used by nix/git-hooks/pre-commit, same pin as everything else
         backend = pkgs.callPackage ./nix/pkgs/backend.nix { };
+        runtime-loader = pkgs.callPackage ./nix/pkgs/runtime-loader.nix { };
+        gameserver-wine = pkgs.callPackage ./nix/pkgs/gameserver-wine.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
-      };
+      } // lib.optionalAttrs msvcAccepted (msvcPackagesFor pkgsMsvc);
+
+      # For modules / downstream flakes: lib.msvcPackages { acceptMicrosoftVisualStudioLicense = true; }
+      lib.msvcPackages = args: msvcPackagesFor (mkPkgs args);
 
       nixosModules.server = { lib, ... }: {
         imports = [ ./nix/modules/server.nix ];
