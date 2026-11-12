@@ -17,6 +17,7 @@
         legendary = pkgs.callPackage ./nix/pkgs/legendary.nix { };
         gitleaks = pkgs.gitleaks; # used by nix/git-hooks/pre-commit, same pin as everything else
         backend = pkgs.callPackage ./nix/pkgs/backend.nix { };
+        runtime-loader = pkgs.callPackage ./nix/pkgs/runtime-loader.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
       };

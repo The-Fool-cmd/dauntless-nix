@@ -15,6 +15,8 @@ in writeShellApplication {
     export STEAM_COMPAT_DATA_PATH="$prefix"
     export STEAM_COMPAT_CLIENT_INSTALL_PATH="$prefix/client"   # no Steam client needed
     export PROTONFIXES_DISABLE=1      # no protonfixes/winetricks downloads at run time
+    # Proton only writes its log (and only honours WINEDEBUG) when SteamGameId is set: $PROTON_LOG_DIR/steam-<id>.log
+    export SteamGameId="''${SteamGameId:-dauntless-nix}"
     export PROTON_LOG="''${PROTON_LOG:-1}"
     export PROTON_LOG_DIR="''${PROTON_LOG_DIR:-$prefix/logs}"
     mkdir -p "$PROTON_LOG_DIR"

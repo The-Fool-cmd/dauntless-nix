@@ -112,3 +112,43 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   - that the secrets file is `0600`;
   - that the backend log has no errors and the backend survives a restart.
 - **Why:** this tests the declarative config without touching any real machine.
+
+## D12 — No domain: a remote player reaches the server over WireGuard (2026-11-13)
+- **Context:** there is no owned domain. Upstream's model is a public DNS name, publicly trusted TLS on 443, 80 open
+  for the pong page, and a public UDP game range.
+- **Finding:** the runtime reads `MYSTICPARADOX_BACKEND_URL` (`ParadoxRuntime/BackendUrl.h`): `http` or `https`, a DNS
+  name or an IPv4/IPv6 literal, with an optional port. It replaces the compiled-in `https://MP_PUBLIC_HOST` for API
+  calls and chat. A client can therefore be pointed at an address with no DNS at all. The launcher is ours to build
+  (phase 3), so its trust store is ours to choose too.
+- **Options:**
+  1. A free dynamic-DNS name plus Let's Encrypt, with 80, 443 and UDP public. This depends on a third-party DNS
+     provider at run time and exposes the most.
+  2. A public IP and a self-signed certificate, with 80, 443 and UDP public. This breaks whenever the home IP
+     changes, and still exposes everything.
+  3. The remote player as a peer on the existing router WireGuard server. Stock firmware gives a peer all or nothing
+     of the LAN.
+  4. A dedicated WireGuard interface on the server, used only by players.
+- **Chosen:** option 4. The server module gains an opt-in `wg-dauntless` interface. Its firewall allows only the
+  backend (80/443) and game UDP on that interface. The only public exposure is one forwarded UDP port (a human step at
+  the router). LAN players connect directly. Clients get the server address through `MYSTICPARADOX_BACKEND_URL`.
+- **Why:** no domain and no third-party DNS; less exposure than upstream's model; the remote player can reach only
+  the game ports, not the LAN.
+- **Open:** whether the game's HTTP client accepts a self-signed certificate (otherwise plain HTTP, which inside the
+  tunnel is encrypted by WireGuard and on the LAN is local only), to be decided in phase 3. If the home IP is dynamic,
+  the peer's `Endpoint` needs updating when it changes.
+
+## D13 — RuntimeLoader (`winmm.dll`) is cross-built with MinGW (2026-11-13)
+- **Chosen:** `nix/pkgs/runtime-loader.nix` builds `tools/RuntimeLoader` for `x86_64-pc-windows-gnu`
+  (`pkgsCross.mingwW64.rustPlatform`, stable Rust, `+crt-static`) instead of upstream's 2026-03 nightly MSVC build.
+- **Checked:**
+  - Its imports are only system DLLs (kernel32, ntdll, msvcrt, bcryptprimitives, api-ms-win-core-synch).
+  - It exports 198 functions, including all four the game imports from winmm.
+  - Under the pinned Proton with `WINEDLLOVERRIDES=winmm=n,b`, the game loads it as native from the game folder, it
+    forwards to the builtin winmm, and it loads DLLs listed in `mystic_loader.ini`. This was verified inside the real
+    1.14.7 process with a probe DLL that writes a marker file.
+- **Why:** the crate is pure Rust plus winapi, with no MSVC-specific link steps, so it needs neither the MSVC
+  toolchain nor the Windows SDK.
+- **Consequence:** `mystic_loader.ini` gives a way to inject Dumper-7 and CatalogExporter under Proton without a
+  separate injector.
+- **Gotcha:** Proton writes no log, and ignores `WINEDEBUG`, unless `SteamGameId` is set. The wrapper now defaults
+  it to `dauntless-nix`.
