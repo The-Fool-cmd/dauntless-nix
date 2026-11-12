@@ -7,10 +7,16 @@
   outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
-      pkgs = import nixpkgs { inherit system; };
+      pkgs = import nixpkgs {
+        inherit system;
+        # Only the Steam FHS runtime used to host Proton is unfree.
+        config.allowUnfreePredicate = p: builtins.elem (nixpkgs.lib.getName p) [ "steam" "steam-run" "steam-unwrapped" ];
+      };
     in {
       packages.${system} = {
         legendary = pkgs.callPackage ./nix/pkgs/legendary.nix { };
+        gitleaks = pkgs.gitleaks; # used by nix/git-hooks/pre-commit, same pin as everything else
+        proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
       };
     };

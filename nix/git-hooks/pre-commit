@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Pre-commit guard: secrets (gitleaks, same config as CI) + game files that must never be published.
+# Enable once per clone:  git config core.hooksPath nix/git-hooks
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+
+# 1. Game files, Epic manifests, generated SDK, exported data, Legendary/Epic state.
+bad=$(git diff --cached --name-only --diff-filter=ACMR | grep -iE \
+  '\.(pak|ucas|utoc|sig|exe|dll|pdb|manifest|uasset|umap|bin)$|(^|/)(Items_Analysis|SDK|legendary|pfx)/|(^|/)Version\.txt$|user\.json$|\.env($|\.)' \
+  | grep -vE '\.env\.(example|p2p\.example)$' || true)
+if [ -n "$bad" ]; then
+  echo "pre-commit: refusing to commit game files / credentials:" >&2
+  printf '  %s\n' $bad >&2
+  exit 1
+fi
+
+# 2. Secrets in staged content.
+if command -v gitleaks >/dev/null; then gl=(gitleaks); else gl=(nix run "$root#gitleaks" --); fi
+exec "${gl[@]}" git --pre-commit --staged --redact --no-banner --config "$root/.gitleaks.toml" "$root"
