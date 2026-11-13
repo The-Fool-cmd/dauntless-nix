@@ -611,3 +611,27 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Also:** with `openFirewall = false`, the player ports stay closed on the LAN; they exist only on the tunnel.
 - **Verified:** VM test: the Director's cgroup reaches localhost and an allowed network, not the internet side;
   the WireGuard port rule is scoped to the forwarded interface.
+
+## D39 — Operations: log collection, runtime deployment, fountain offer (2026-11-13)
+- **Hunt servers do exit when empty.** D28 left "an unjoined hunt server never exits" open. The runtime DLL's
+  watchdog (`MP_WD_EMPTY_REAP_SEC`) already ends a hunt server 60 s after its last player leaves, or 5 min after
+  start if nobody joined; deployed Director logs show every hunt server exiting with code 0 on its own. No
+  Director timeout is needed.
+- **`dauntless collect-logs`:** the Director's and backend's log directories are 0750 and root-owned or
+  service-owned, so an operator without sudo could not read game-server logs. A root oneshot
+  (`dauntless-collect-logs.service`, allowed to `dauntless-operators` by the existing polkit rule) copies the last
+  two days of `*.log`/`*.txt`/`*.json` from the Director logs and debug dirs, the game servers' DLL logs, the
+  backend debug dir and the launcher uploads, plus the journal, into a 0640 archive. VM test: an operator runs it
+  and reads the archive.
+- **`deploy-runtime`:** replaces the manual copy, `nix store add` and hash edit. The hash is computed locally on the
+  same two 0644 files and checked against the server's store path before anything is edited.
+- **Expedition islands (7 unresolved player hunts):** `CR19_PlayerHunt_Expedition_Island02..08` have no matchmaker
+  rows in 1.14.7 (`MatchmakerHuntIDs` are all `None`), so the build ships no map or behemoth for them: leftovers of
+  removed content, not events newer than this build. Nothing to serve.
+- **Fountain:** the backend already supports the coin toss; it needs `fountain_daily_bundle.json` in the game data,
+  which was never deployed. No live capture of the real offer exists, so the contents stay the operator's choice
+  (see `ParadoxBackend/game-data/README.md`); a Rams-only offer validates against the 1.14.7 storage policy.
+- **Heroic Escalation tuning:** not needed here. `escalation_tuning.json` only lets the backend check escalation
+  saves sent by player-hosted (realm) servers; without it, those saves are merged and progress never goes down.
+  Dedicated servers run by the operator do not need that check.
+

@@ -69,19 +69,20 @@ servers at run time. Phases are listed in order; each one gates the next.
 ## Next
 First real play-test 2026-11-13: login and Ramsgate work on the deployed server (D25–D27).
 1. Hunts: tables exported and deployed (D28): 154 of 161 player hunts resolve and a hunt server boots its map on
-   the server. Still to do: play-test a hunt; Expedition islands (7 rows) are unsupported; an unjoined hunt
-   server never exits (it holds one of the `maxConcurrentHunts` slots until `dauntless restart`).
+   the server. The 7 Expedition islands have no matchmaker rows in 1.14.7 (removed content, D39). Empty hunt
+   servers exit on their own (60 s after the last player, 5 min if nobody joined; D39).
    A hunt was play-tested on 2026-11-13: it loaded quickly, ran smoothly and paid rewards.
 2. D33: Hunt Pass XP rules and an annual event calendar are served; Trials leaderboards wait for the result path.
    Game data is real (D29): Hunt Passes season43..50, weapon prestige and reforge Aetherhearts, Slayer's Path,
-   mastery objectives, Reward Cache, Lady Luck, platinum store. Still to do: play-test it in game; Heroic Escalation
-   tuning (optional, only realm hosts use it).
+   mastery objectives, Reward Cache, Lady Luck, platinum store. Still to do: play-test it in game. (Heroic Escalation
+   tuning only checks saves from player-hosted servers; not needed with dedicated servers, D39.)
    D30: every account gets all premium passes, VIP (`ent_boost_vip`), `cc_premium` and 500 Platinum once; the 40
    cosmetic passes (vaults, event and Reward Cache passes) are served. Still to check in game: whether the client
    lists the cosmetic passes and how it switches the selected pass. In game: listed, selectable, elite visible (D30);
    the selection is now saved (D31).
-3. Operations: MongoDB backups done (D32); collect game-server logs without root, progression persistence across a restart,
-   scripted runtime deployment, registration approval.
+3. Operations: MongoDB backups done (D32); `dauntless collect-logs` and `deploy-runtime` done (D39). Still to do:
+   check that progression persists across a restart. The fountain coin toss needs `fountain_daily_bundle.json` in
+   the game data (D39).
 4. Remote player onboarding over WireGuard; play-test a party and a hunt together.
 5. Report the Dumper-7 Blueprint-lookup bug upstream (D27).
 
