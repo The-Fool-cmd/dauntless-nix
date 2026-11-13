@@ -596,3 +596,18 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   no process is left; a program that exits cleanly returns at once, untouched; the prefix starts normally afterwards.
 - **Gotcha:** an agent shell with a private `/tmp` cannot reach a Wine session whose prefix is under `/tmp` (the
   wineserver socket lives in `/tmp/.wine-<uid>`); test prefixes belong outside `/tmp`.
+
+## D38 — Network containment for the tunnel deployment (2026-11-13)
+- **Audit:** with every player on the tunnel, a peer reaches only TCP 80/443/plain-HTTP and the game UDP range on the
+  server's tunnel address; the forward guard (first rule in `FORWARD`, IPv4 and IPv6) keeps peers off the LAN, off
+  container networks and off each other; nothing else is publicly exposed (WireGuard answers no unauthenticated
+  packet). The client side routes only the server's /32 into the tunnel, without DNS or a default route.
+- **Chosen:** two opt-in options for hosts where every player uses the tunnel.
+  - `allowedNetworks`: the backend and the Director (with its Wine game servers, which parse players' packets) may
+    exchange IP traffic only with localhost and these networks (`IPAddressAllow`, `IPAddressDeny=any`). A taken-over
+    game server cannot reach the home LAN or the internet, and the game cannot call third-party services.
+  - `wireguard.firewallInterfaces`: open the WireGuard port only on the interface the router forwards to (not on
+    other segments such as an IoT VLAN).
+- **Also:** with `openFirewall = false`, the player ports stay closed on the LAN; they exist only on the tunnel.
+- **Verified:** VM test: the Director's cgroup reaches localhost and an allowed network, not the internet side;
+  the WireGuard port rule is scoped to the forwarded interface.
