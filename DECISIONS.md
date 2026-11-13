@@ -428,3 +428,12 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   only accept packets that arrive on the tunnel. It does not help a LAN player; it does confine game UDP to the
   tunnel. **Every player, LAN included, joins the WireGuard tunnel** (a LAN player uses the server's LAN address as
   the endpoint). The static LAN route to the tunnel address is not used.
+
+## D27 — Fix Dumper-7's Blueprint-event lookups in the SDK (2026-11-13)
+- **Context:** the first real join crashed the Ramsgate server: `Fatal error: Failed to find function
+  BP_PlayerCharacter_C in BP_PlayerCharacter_C ...`, raised from the runtime's per-connection `TickStamina` call.
+  Our Dumper-7 build (`CppGenerator.cpp`, the dynamic-lookup branch) passes the outer class name to
+  `FindFunctionChecked` for every BlueprintEvent wrapper: 11,999 wrappers in our 1.14.7 SDK.
+- **Decision:** `tools/sdk-fixups/fix-bp-function-names.py` rewrites each lookup to the function's own name (from the
+  `// Function Pkg.Class.Name` comment above it). The flake applies it to the SDK for both the runtime and the
+  CatalogExporter, so the SDK store path stays the untouched dump.
