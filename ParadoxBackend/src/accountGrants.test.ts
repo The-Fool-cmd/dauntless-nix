@@ -16,3 +16,14 @@ test("account grants: every problem is reported and nothing is accepted", () => 
         && /bad amount for CURRENCY_X/.test(Err.message) && /bad starterGrantId/.test(Err.message));
     assert.throws(() => ParseAccountGrants({ entitlements: "x" }), /must be an array/);
 });
+
+test("account grants: one-time credits name one account each, with unique ids", () => {
+    const Grants = ParseAccountGrants({ credits: [{ id: "refund_1", userId: "00000000-0000-4000-8000-000000000001", currency: { CURRENCY_PLATINUM_UNIV: 150 } }] });
+    assert.deepEqual(Grants.credits, [{ id: "refund_1", userId: "00000000-0000-4000-8000-000000000001", currency: { CURRENCY_PLATINUM_UNIV: 150 } }]);
+    assert.deepEqual(ParseAccountGrants({}).credits, []);
+    assert.throws(() => ParseAccountGrants({ credits: [
+        { id: "a", userId: "u1", currency: { CURRENCY_PLATINUM_UNIV: 1 } },
+        { id: "a", userId: "bad id!", currency: { platinum: 0 } },
+    ] }), (Err: Error) => /duplicate credit id a/.test(Err.message) && /bad userId in credit a/.test(Err.message) && /bad currency id/.test(Err.message));
+    assert.throws(() => ParseAccountGrants({ credits: {} }), /credits must be an array/);
+});

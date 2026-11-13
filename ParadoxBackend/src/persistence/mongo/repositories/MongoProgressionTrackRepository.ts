@@ -159,6 +159,16 @@ export class MongoProgressionTrackRepository implements ProgressionTrackReposito
     }
 
     async setConfirmedFremiumRank(userId: string, progressionId: string, rank: number): Promise<ProgressionTrackRecord> {
+        return this.SetConfirmedRank(userId, progressionId, rank, "confirmedFremiumRank");
+    }
+
+    // dauntless-nix: the premium (Elite) claim, same rules as the free one.
+    async setConfirmedPremiumRank(userId: string, progressionId: string, rank: number): Promise<ProgressionTrackRecord> {
+        return this.SetConfirmedRank(userId, progressionId, rank, "confirmedPremiumRank");
+    }
+
+    private async SetConfirmedRank(userId: string, progressionId: string, rank: number,
+        field: "confirmedFremiumRank" | "confirmedPremiumRank"): Promise<ProgressionTrackRecord> {
         const Db = await GetMongoDb();
         const Now = new Date().toISOString();
         const Id = this.TrackId(userId, progressionId);
@@ -171,12 +181,12 @@ export class MongoProgressionTrackRepository implements ProgressionTrackReposito
         const Result = await Db.collection(Collections.ProgressionTracks).findOneAndUpdate(
             { _id: Id as any },
             {
-                $max: { confirmedFremiumRank: rank },
+                $max: { [field]: rank },
                 $set: { userId, progressionId, updatedAt: Now },
                 $inc: { updateVersion: 1 },
                 $setOnInsert: {
                     progress: 0,
-                    confirmedPremiumRank: 0,
+                    [field === "confirmedFremiumRank" ? "confirmedPremiumRank" : "confirmedFremiumRank"]: 0,
                     createdAt: Now
                 }
             },
@@ -185,7 +195,7 @@ export class MongoProgressionTrackRepository implements ProgressionTrackReposito
 
         const Doc = Result as any;
         if (Doc == undefined) {
-            throw new Error(`ProgressionTrack setConfirmedFremiumRank upsert for ${Id} unexpectedly returned no document.`);
+            throw new Error(`ProgressionTrack ${field} upsert for ${Id} unexpectedly returned no document.`);
         }
 
         return {

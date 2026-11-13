@@ -15,7 +15,7 @@ import { loadGameData } from "../gameData/loader";
 import { WidenHuntPassWindows } from "./system";
 import { HasParadoxBackendAuth } from "../middleware/HasParadoxBackendAuth";
 import { logger } from "../logger";
-import { AddEncounteredContent, GetBreadcrumbsForCharacterIdAndUserId, GetPlayerJourney, QueryEncounteredContent, SavePlayerJourney, SetBreadcrumbsForCharacterIdAndUserId, GrantProgressionXp, GetPersistedProgressionForUser, CaptureProgressionObjectiveEvent, GetPersistedObjectivesForUser, ConfirmPublicProgressionRank, IsAuthorizedProgressionReader, IsAuthorizedProgressionReporter, IsApprovedXpProgressionTrack, IsValidProgressionGrantId, ProgressionGrantConflictError, IsCharacterOwnedByUser, DescribeUnapprovedXpTrack, IsHuntPassXpTrack, RankForProgress, ServedHuntPassProgressionId, IsHostRuntimeAuth, RefuseUnauthorizedHostWrite, TagHostWrite, SummarizeObjectiveReport, CheckHostXpGrant, DescribeHostGrantRefusal, HostGrantLimitDenial, HostGrantLimitError, MAX_PROGRESSION_GRANT_AMOUNT, ACTIVE_HUNTPASS_PROGRESSION_ID, IsAuthoritativeServerFor, HostLimitOnlyLogs } from "../controllers/progression";
+import { AddEncounteredContent, GetBreadcrumbsForCharacterIdAndUserId, GetPlayerJourney, QueryEncounteredContent, SavePlayerJourney, SetBreadcrumbsForCharacterIdAndUserId, GrantProgressionXp, GetPersistedProgressionForUser, CaptureProgressionObjectiveEvent, GetPersistedObjectivesForUser, ConfirmPublicProgressionRank, IsAuthorizedProgressionReader, IsAuthorizedProgressionReporter, IsApprovedXpProgressionTrack, IsValidProgressionGrantId, ProgressionGrantConflictError, IsCharacterOwnedByUser, DescribeUnapprovedXpTrack, IsHuntPassXpTrack, RankForProgress, ServedHuntPassProgressionId, IsHostRuntimeAuth, RefuseUnauthorizedHostWrite, TagHostWrite, SummarizeObjectiveReport, CheckHostXpGrant, DescribeHostGrantRefusal, HostGrantLimitDenial, HostGrantLimitError, MAX_PROGRESSION_GRANT_AMOUNT, ACTIVE_HUNTPASS_PROGRESSION_ID, IsAuthoritativeServerFor, HostLimitOnlyLogs, SELECTED_HUNTPASS_TRACK_ALIAS, SelectedHuntPassFor } from "../controllers/progression";
 import { ApplyMasteryReport, ApplyMasteryReportWithPlan, HostMasteryLimits, MASTERY_PERSISTENCE, SummarizeMasteryPlan } from "../controllers/masteryReport";
 import { ClassifyReforgeGrant, ExperienceTrackForPrestige, FinishStaleReforgesForUser, IsReforgeableTrack, PlanPurchaseRestore, ReforgeConflictError, ReforgeGrantHook, ReforgeGrantPlan, ReforgeReset } from "../controllers/reforge";
 import { GetRepositories } from "../persistence";
@@ -728,7 +728,10 @@ progressionRouter.post("/progression/:userId", HasParadoxBackendAuth, async (req
 // (hostWrites RANK_CONFIRM: a hunt's admitted member, a realm's Ramsgate hub's present member; a Training hub refuses). Its
 // confirm is tagged only when the confirmed rank rises. Until now a hunt's rank-ups never confirmed; the dedicated path is
 // unchanged.
-progressionRouter.post("/progression/:userId/:progressionId/:rank/confirm/public", HasParadoxBackendAuth, async (req: any, res) => {
+// dauntless-nix D35: the hub claims an Elite (premium) reward with POST .../confirm/premium right after granting it (live log
+// 2026-11-13). Without the route the claim was never recorded, so the same reward could be claimed again and again. Same
+// handler, recording confirmedPremiumRank instead.
+const ConfirmRankHandler = (Tier: "fremium" | "premium") => async (req: any, res: any) => {
     const IsHost = IsHostRuntimeAuth(req.AuthData);
     if(!IsHost && req.AuthData?.IsGameserver !== true){
         logger.warn(`Rejected rank confirm attempt without gameserver auth (userId=${req.params.userId}, track=${req.params.progressionId})`);
@@ -771,7 +774,7 @@ progressionRouter.post("/progression/:userId/:progressionId/:rank/confirm/public
         : undefined;
 
     // [2026-10-15] Only a host or a dedicated server reaches this point, so both may use the bounded mastery sync (ConfirmRankOptions).
-    const Result = await ConfirmPublicProgressionRank(RequestedUserId, ProgressionId, Rank, { boundedMasterySync: true });
+    const Result = await ConfirmPublicProgressionRank(RequestedUserId, ProgressionId, Rank, { boundedMasterySync: Tier === "fremium", tier: Tier });
 
     if(!Result.ok){
         const StatusByReason = { unknown_track: 400, rank_out_of_range: 400, insufficient_xp: 409 } as const;
@@ -781,9 +784,9 @@ progressionRouter.post("/progression/:userId/:progressionId/:rank/confirm/public
     }
 
     const Updated = Result.record;
-    logger.info(`Confirm public progression rank ${Rank} for userId ${RequestedUserId} track ${ProgressionId} - progress preserved at ${Updated.progress}`);
+    logger.info(`Confirm ${Tier === "premium" ? "premium" : "public"} progression rank ${Rank} for userId ${RequestedUserId} track ${ProgressionId} - progress preserved at ${Updated.progress}`);
 
-    if(IsHost && PreviousRank !== undefined && Updated.confirmedFremiumRank > PreviousRank){
+    if(IsHost && PreviousRank !== undefined && Tier === "fremium" && Updated.confirmedFremiumRank > PreviousRank){
         await TagHostWrite(req, "RANK_CONFIRM", RequestedUserId, {
             track: ProgressionId, rank: Rank, previousRank: PreviousRank, confirmedRank: Updated.confirmedFremiumRank
         });
@@ -802,7 +805,9 @@ progressionRouter.post("/progression/:userId/:progressionId/:rank/confirm/public
             confirmed_date: Updated.updatedAt,
         }
     });
-});
+};
+progressionRouter.post("/progression/:userId/:progressionId/:rank/confirm/public", HasParadoxBackendAuth, ConfirmRankHandler("fremium"));
+progressionRouter.post("/progression/:userId/:progressionId/:rank/confirm/premium", HasParadoxBackendAuth, ConfirmRankHandler("premium"));
 
 progressionRouter.get("/progression/:userId", HasParadoxBackendAuth, async (req: any, res) => {
     const RequestorAccountId = ResolveRequestUserId(req);
@@ -1097,9 +1102,11 @@ progressionRouter.get("/progression/:userId/:progressionId", (req: any, res, nex
         res.status(200).json({ code: null, message: "OK", payload: SingleTrackPayload(RequestedUserId, String(ProgressionId), undefined) });
         return;
     }
-    const Row = await GetRepositories().progressionTracks.get(RequestedUserId, ProgressionId);
-    logger.info(`Progression track fetched user=${RequestedUserId} track=${ProgressionId} progress=${Row?.progress ?? 0}${Row?.reforge ? ` reforge=${Row.reforge.status}` : ""}`);
-    res.status(200).json({ code: null, message: "OK", payload: SingleTrackPayload(RequestedUserId, ProgressionId, Row) });
+    // dauntless-nix D35: after a rank-skip purchase the hub re-reads `selected_huntpass`; answer with the account's pass.
+    const TrackId = ProgressionId === SELECTED_HUNTPASS_TRACK_ALIAS ? await SelectedHuntPassFor(RequestedUserId) : ProgressionId;
+    const Row = await GetRepositories().progressionTracks.get(RequestedUserId, TrackId);
+    logger.info(`Progression track fetched user=${RequestedUserId} track=${ProgressionId}${TrackId !== ProgressionId ? `->${TrackId}` : ""} progress=${Row?.progress ?? 0}${Row?.reforge ? ` reforge=${Row.reforge.status}` : ""}`);
+    res.status(200).json({ code: null, message: "OK", payload: SingleTrackPayload(RequestedUserId, TrackId, Row) });
 });
 
 // [1.14.7 2026-10-11] Weapon reforge reset: DeleteProgressionEndpoint (DeleteProgressionInTrack 0x140E4F170), captured live

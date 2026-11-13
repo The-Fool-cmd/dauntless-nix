@@ -60,6 +60,9 @@ export interface ProgressionTrackRepository {
      */
     setConfirmedFremiumRank(userId: string, progressionId: string, rank: number): Promise<ProgressionTrackRecord>;
 
+    /** dauntless-nix: setConfirmedFremiumRank for the premium (Elite) claim; never lowers it. */
+    setConfirmedPremiumRank(userId: string, progressionId: string, rank: number): Promise<ProgressionTrackRecord>;
+
     /** Appends one raw mastery/objective event. Append-only — never updates or dedupes here. */
     appendObjectiveEvent(event: ProgressionObjectiveEventRecord): Promise<void>;
 

@@ -553,3 +553,19 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   and its exclusive gold cores are not in 1.14.7. No change.
 - **Verified:** tsc clean; the backend tests: 1,801 pass and the same 3 dataset failures; on the dev stack the
   XP config, the calendar (2026-11-13: Ramsgiving 2026-11-18..12-09) and the telemetry log answer as described.
+
+## D35 — Elite reward claims recorded; level skips reach the game; one-time credits (2026-11-13)
+- **Context (owner play-test, server log):** an Elite (premium) Hunt Pass reward could be claimed again and again.
+  The hub grants it, then calls `POST /progression/<user>/<track>/<rank>/confirm/premium`, which had no route (404),
+  so the claim was never recorded and the game shows a save error. A Platinum level skip debited 150 and raised the
+  track (rank 1→2), but the hub then re-reads `GET /progression/<user>/selected_huntpass`, and the backend answered
+  that literal id with progress 0, so the game never saw the new rank.
+- **Decision:**
+  - `confirm/premium` uses the `confirm/public` handler and records `confirmedPremiumRank` (`$max`, the same XP
+    check against the track's curve). Repositories gain `setConfirmedPremiumRank`.
+  - `selected_huntpass` means the account's selected pass (D31: its saved selection while served, otherwise the
+    default), both for the rank-skip purchase and for the single-track GET, which answers with the real track id.
+  - `account_grants.json` gains `credits`: `[{ id, userId, currency }]`, each credited once to that account at its
+    next launcher login (marker entitlement `dauntless_nix_credit_<id>`). Used for refunds without root.
+- **Verified:** backend build, tests 1,617 pass, 0 fail (new: premium claim in the repository test, credit parsing).
+  Not yet seen in game: the hub's handling of the GET answer after a skip.

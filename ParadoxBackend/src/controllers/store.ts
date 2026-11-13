@@ -17,7 +17,7 @@ import { Collections } from "../persistence/mongo/collections";
 import { GetBalance, InsufficientBalanceError, IsPrestigeGatedReward } from "./wallet";
 import { RunInventoryTransaction, InventoryTransactionConflictError, InventoryTransactionMismatchError } from "./inventory";
 import { GrantEntitlementsInTransaction } from "./entitlements";
-import { GetTrackCurve, ResolveProgressionTrackId } from "./progression";
+import { GetTrackCurve, ResolveProgressionTrackId, SelectedHuntPassFor } from "./progression";
 import { ResolveProgressionGrant } from "../skuProgression";
 import { GetInventoryStoragePolicy, InventoryStoragePolicyEntry } from "../inventoryStoragePolicy";
 import { logger } from "../logger";
@@ -425,13 +425,15 @@ async function GrantSkuProgressionInTransaction(repos: RepositoryProvider, userI
     if (sku.skuProgression == undefined) return;
 
     const RawTrackId = sku.skuProgression.progressionId;
-    const TrackId = typeof RawTrackId === "string" ? ResolveProgressionTrackId(RawTrackId) : undefined;
+    const SelectedPass = await SelectedHuntPassFor(userId);
+    const Resolve = (Id: string) => ResolveProgressionTrackId(Id, SelectedPass);
+    const TrackId = typeof RawTrackId === "string" ? Resolve(RawTrackId) : undefined;
     const Existing = TrackId ? await repos.progressionTracks.get(userId, TrackId, session) : undefined;
 
     const Plan = ResolveProgressionGrant(
         sku.skuProgression,
         Existing?.progress ?? 0,
-        ResolveProgressionTrackId,
+        Resolve,
         GetTrackCurve
     );
 
