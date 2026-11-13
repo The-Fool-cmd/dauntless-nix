@@ -125,6 +125,18 @@ const STANDARD_GAMESERVER_ARGS = [
 ];
 const METAGAME_API_KEY = process.env.METAGAME_API_KEY!;
 const MY_IP = process.env.MY_IP!;
+
+// [dauntless-nix 2026-11-13] Bind the game servers to MY_IP. Unbound (0.0.0.0), the kernel picks each reply's source
+// from the route to the player, so a player who reaches MY_IP over a different interface (a LAN player routed to the
+// WireGuard address) gets replies from the host's LAN address and the client drops them: "server network connection
+// timed out" with nothing ever received. -MULTIHOME is UE's bind address (the runtime carries it into FCommandLine).
+// GAMESERVER_MULTIHOME=off keeps the old behaviour; any other value overrides the address.
+export function MultihomeArgs(env: NodeJS.ProcessEnv = process.env): string[] {
+    const Setting = (env.GAMESERVER_MULTIHOME ?? "").trim();
+    if (/^(0|false|off|no)$/i.test(Setting)) return [];
+    const Address = Setting.length > 0 ? Setting : (env.MY_IP ?? "").trim();
+    return /^\d{1,3}(\.\d{1,3}){3}$/.test(Address) ? [`-MULTIHOME=${Address}`] : [];
+}
 const SECONDS_TO_WAIT_BETWEEN_GAMESERVER_STARTUP = Number(process.env.SECONDS_TO_WAIT_BETWEEN_GAMESERVER_STARTUP!);
 const GAMESERVER_READY_TIMEOUT_MS = Number(process.env.GAMESERVER_READY_TIMEOUT_MS ?? "30000");
 
@@ -463,7 +475,8 @@ async function StartServer(Map: string, Behemoth: string | undefined, Matchmaker
             MatchmakerHuntId != undefined ? MatchmakerHuntId : "NO_MM_HUNTID",
             ExpectedPlayers != undefined ? TransformExpectedPlayerArgs(ExpectedPlayers) : "NO_EXPECTED_PLAYERS",
             MY_IP + ":" + Port.toString(),
-            ...STANDARD_GAMESERVER_ARGS
+            ...STANDARD_GAMESERVER_ARGS,
+            ...MultihomeArgs()
         ], {
             // [1.14.7] The game executable is a GUI application, so it creates a render window even
             // with -nullrhi. windowsHide sets STARTF_USESHOWWINDOW=SW_HIDE, which is what keeps the

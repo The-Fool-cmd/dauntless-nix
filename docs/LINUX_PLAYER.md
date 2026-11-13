@@ -54,7 +54,8 @@ touch this folder. Any of those replaces 1.14.7 with 2.1.1.
 
 ## 2. Connect to the server (WireGuard)
 
-Remote players reach the server through a WireGuard tunnel that only carries the game. Make a key pair and send
+Every player reaches the server through a WireGuard tunnel that only carries the game (players on the server's own
+LAN too: use the server's LAN address as `Endpoint`). Make a key pair and send
 the **public** key to the operator. The private key stays on your PC:
 
     nix shell nixpkgs#wireguard-tools -c sh -c 'umask 077; wg genkey > ~/.config/dauntless-wg.key; wg pubkey < ~/.config/dauntless-wg.key'
