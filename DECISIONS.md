@@ -579,6 +579,6 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   `+loaddll`, `+threadname` and `err` stay (they found this bug). Setting `WINEDEBUG` still overrides it.
 - **Verified:** inside the new sandbox, with the `LD_LIBRARY_PATH` and `SDL_*` environment taken from a running
   winedevice, SDL2 initialises and reports the HID-mode GameSir as a game controller (`SDL_IsGameController` = 1).
-  In-game check pending.
+  Confirmed in game with the GameSir G7 Pro.
 - **Gotcha:** a relaunch while the game still runs joins the old wineserver, so a fix is only tested after every
   game process has exited.
