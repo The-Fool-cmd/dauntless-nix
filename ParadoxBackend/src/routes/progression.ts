@@ -728,9 +728,8 @@ progressionRouter.post("/progression/:userId", HasParadoxBackendAuth, async (req
 // (hostWrites RANK_CONFIRM: a hunt's admitted member, a realm's Ramsgate hub's present member; a Training hub refuses). Its
 // confirm is tagged only when the confirmed rank rises. Until now a hunt's rank-ups never confirmed; the dedicated path is
 // unchanged.
-// dauntless-nix D35: the hub claims an Elite (premium) reward with POST .../confirm/premium right after granting it (live log
-// 2026-11-13). Without the route the claim was never recorded, so the same reward could be claimed again and again. Same
-// handler, recording confirmedPremiumRank instead.
+// dauntless-nix D35: the hub records an Elite (premium) reward claim with POST .../confirm/premium. Same handler, recording
+// confirmedPremiumRank instead.
 const ConfirmRankHandler = (Tier: "fremium" | "premium") => async (req: any, res: any) => {
     const IsHost = IsHostRuntimeAuth(req.AuthData);
     if(!IsHost && req.AuthData?.IsGameserver !== true){

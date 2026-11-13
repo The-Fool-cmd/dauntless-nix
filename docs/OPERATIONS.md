@@ -41,12 +41,12 @@ sudo podman exec -e E='player@example.com' -e H="$H" dauntless-mongodb mongosh -
 
 `matchedCount: 1` means it was set (the email is stored in lower case). The player signs in with the new password.
 
-## Crediting a player (refunds, D35)
+## Crediting a player (D35)
 
 Add an entry to `credits` in `~/dauntless-game-data/account_grants.json` on the server (no root needed):
 
 ```json
-"credits": [{ "id": "refund_20261113", "userId": "<account uuid>", "currency": { "CURRENCY_PLATINUM_UNIV": 150 } }]
+"credits": [{ "id": "credit_1", "userId": "<account uuid>", "currency": { "CURRENCY_PLATINUM_UNIV": 150 } }]
 ```
 
 It is paid once, at that player's next launcher login after a `dauntless restart`; the log shows
