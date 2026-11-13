@@ -44,6 +44,10 @@ servers at run time. Phases are listed in order; each one gates the next.
 - Director and WireGuard modules (D20): game ports only through the tunnel, no forwarding into the LAN
   (negative-controlled), Director API on loopback.
 
+- Game data (D24): CatalogExporter is built in Nix and ran off-screen against our own install. `progression_config`
+  is assembled for all 23 non-Hunt-Pass XP tracks (player, weapons, mastery, reforge) and accepted by upstream's
+  generator; the backend loads it with no warnings.
+
 ## Doesn't work / not yet checked
 - Only about 48 s of runtime so far; no long soak.
 - The shipping build writes no Unreal log (`Archon.log` holds only open/close lines). Diagnosis will rely on the
@@ -61,8 +65,9 @@ servers at run time. Phases are listed in order; each one gates the next.
   still to do.
 
 ## Next
-1. Real game data (D19). Build CatalogExporter with the D14 toolchain and compare upstream's ProgressionExporter
-   with dauntless-revamped's. The XP tracks export at the front end; hunts, store and Slayer's Path need Ramsgate.
+1. The rest of the game data. Hunt tables, store and Slayer's Path exports need the client in Ramsgate (after the
+   owner accepts the game's own EULA). The Hunt Pass (`season43`) comes from the wiki (D19); which pass maps to
+   season43 is not in the client and needs a decision. Lady Luck store is open.
 2. Deploy to the server (needs the owner): the game copy on the server, the SDK in its store, the host config,
    the WireGuard port forward, and the remote player's peer key.
 3. Play-test with the owner (accepting the game's own EULA in the client, Ramsgate, party, hunt), then check that
