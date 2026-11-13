@@ -483,3 +483,39 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   the season ids the client enables and the real prestige rewards. On the dev stack the backend served the config
   to a real client with no warnings, and season44..50 resolve without clones. The hub was not reached: the dev
   account stops at the game's EULA, which only the owner accepts.
+
+## D30 — Operator account grants; cosmetic passes served (2026-11-13)
+- **Context:** the owner wants every player to start with 500 Platinum and to have every paid feature: premium
+  passes, VIP and the rest. The 1.14.7 client lists 40 cosmetic passes in its season table (17 Hunt Pass vaults, 10
+  event passes, 4 Reward Cache passes, plus 9 vault and duplicate rows); the backend served none of them.
+- **What exists in 1.14.7:** the binary names the VIP entitlement `ent_boost_vip` (`VIPAccessEntitlement`, with a
+  membership countdown), `cc_premium` and the pass gates. It has no "Slayer's Club" string. The Middleman appears
+  only as a cell store and objectives, not as a subscription.
+- **Decision:**
+  - `account_grants.json` (optional, host-side game data) is applied at every launcher login in a transaction:
+    the listed entitlements are granted if missing, and `starterCurrency` is credited once per account (the marker
+    entitlement `dauntless_nix_starter_<id>`). It never blocks a login and never revokes. The owner's file: the
+    `season43..50_premium` gates, the 40 cosmetic pass gates, `ent_boost_vip`, `cc_premium`, and 500
+    `CURRENCY_PLATINUM_UNIV` (the bucket rewards already use).
+  - `progression-from-capture.py` copies a pass under its own id with its captured gate and an open window. Every
+    reward of the 40 passes is in the catalog. The backend no longer clamps their windows and accepts XP for them
+    (`IsCosmeticPassId`; test passes excluded).
+- **Verified:** tsc clean; the backend tests: 1,798 pass and the same 3 dataset failures as D29. On the dev stack, a
+  real client's login granted the 50 entitlements and +500 once; a second login granted nothing.
+- **Open:** the game grants pass XP only to the track `GET /huntpass` names as selected, and no capture shows how
+  the client switches tracks. Whether the client lists the cosmetic passes at all (the comment in
+  `routes/system.ts` says only season43..50 are enabled) is checked in game next.
+
+## D31 — The selected pass is saved per account (2026-11-13)
+- **Context:** in game the owner can select any pass, including the cosmetic passes (D30), but the hub reports the
+  choice with `POST progression/huntpass/<userId>` (gameserver key). There was no such route, so it got a 404, and
+  `GET /huntpass` kept naming season43. The game grants pass XP to the track that GET names, so a switch never
+  took effect.
+- **Decision:** a `huntPassSelections` store (Mongo and SQLite, `_id` = userId; included in account deletion).
+  `POST /huntpass/:userId` (a gameserver, or the player for themselves) saves the selection if it is a served
+  selectable pass: `season43..50` or a cosmetic pass with a curve in the config. `GET` returns the saved
+  selection while it is still served, and otherwise the default pass. The XP grant route approves the same set. The 1.14.7
+  POST body was not captured, so the handler takes the id from `huntpass_id`/`season`/`progression_id`/... or a bare
+  string; it logs the body, and answers 400 with the body in the log when it cannot read it.
+- **Verified:** tsc clean; the backend tests: 1,799 pass and the same 3 dataset failures; on the dev stack
+  GET → season43, POST season10a_vault → saved and returned by GET, a test pass → 400, no key → 401.

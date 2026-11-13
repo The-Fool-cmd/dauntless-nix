@@ -30,6 +30,7 @@ export const Tables = {
     escalationProgress: new DocTable("escalationProgress"),
     bountyStates: new DocTable("bountyStates"),
     cooldownStates: new DocTable("cooldownStates"),
+    huntPassSelections: new DocTable("huntPassSelections"),
     economyDaily: new DocTable("economyDaily"),
     playerActivityDaily: new DocTable("playerActivityDaily"),
     activityHunts: new DocTable("activityHunts"),

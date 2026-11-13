@@ -37,6 +37,8 @@ export const Collections = {
     BountyStates: "bountyStates",
     // Per-account cooldowns for GET /cooldown/:userId and PUT /cooldown/batch/:userId (src/cooldownState.ts). _id = userId.
     CooldownStates: "cooldownStates",
+    // dauntless-nix D31: the pass each account levels (routes/system.ts /huntpass/:userId). _id = userId.
+    HuntPassSelections: "huntPassSelections",
 
     // [2026-10-14] Per-account, per-UTC-day economy totals (diagnostics/economyLedgerMonitor.ts; monitoring only, ~400 days).
     // _id = `${userId}:${day}:${currency}`.

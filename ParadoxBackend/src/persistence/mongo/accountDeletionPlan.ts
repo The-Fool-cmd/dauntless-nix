@@ -181,6 +181,7 @@ export function CoreAccountDeletionSteps(): AccountDeletionStep[] {
         { kind: "delete", collection: Collections.EscalationProgress, description: "escalation progress", match: (c) => ({ userId: c.userId }) },
         { kind: "delete", collection: Collections.BountyStates, description: "bounty board state", match: (c) => ({ $or: [{ _id: c.userId }, { userId: c.userId }] }) },
         { kind: "delete", collection: Collections.CooldownStates, description: "cooldowns", match: (c) => ({ $or: [{ _id: c.userId }, { userId: c.userId }] }) },
+        { kind: "delete", collection: Collections.HuntPassSelections, description: "selected hunt pass", match: (c) => ({ $or: [{ _id: c.userId }, { userId: c.userId }] }) },
         { kind: "delete", collection: Collections.EconomyDaily, description: "daily economy totals", match: (c) => ({ userId: c.userId }) },
         // [2026-10-14] The activity monitor (src/activity): daily counters, hunt rows (the host row too), unlock history and flags.
         { kind: "delete", collection: Collections.PlayerActivityDaily, description: "daily activity counters", match: (c) => ({ userId: c.userId }) },

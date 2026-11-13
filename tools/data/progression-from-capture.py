@@ -6,7 +6,8 @@ and ships no tier costs or rewards for them (D24). The public capture of the liv
 (EisigesEis/DauntlessEndpointDocumentation, Progression/Config.json) holds the real passes season09a..season27.
 This copies a captured pass onto each target id: requirements, free and premium rewards, prestige and
 progression_multiplier. The target keeps its own id, `<id>_premium` gating entitlement and dates (the backend
-rewrites the windows at run time). `also_progress` links are kept only to paths the config has.
+rewrites the windows at run time). A pass copied under its own id (`season10a_vault=season10a_vault`) keeps the
+captured gate and gets an open window instead. `also_progress` links are kept only to paths the config has.
 Every stacked or instanced reward must exist in the catalog export; otherwise nothing is written.
 
 Prestige: for every non-season path whose requirements equal the captured path's (the client-exported weapon and
@@ -16,11 +17,12 @@ Paths whose requirements differ (the capture is from a later build: its player l
 are left alone and reported.
 
 usage: progression-from-capture.py <progression_config.json> <capture Config.json> <catalog_1_14_7.jsonl> \
-           target=source [target=source ...]          e.g. season43=season25 season44=season26
+           target=source [target=source ...]          e.g. season43=season25 season44=season26 season10a_vault=season10a_vault
 The config is changed in place; a .bak copy is kept.
 """
 import copy, json, shutil, sys
 
+OPEN_WINDOW = ("2024-01-01T17:00:00+00:00", "2099-01-01T16:59:59+00:00")
 COPIED = ("requirements", "free_rewards", "premium_rewards", "prestige", "progression_multiplier")
 
 def reward_ids(path: dict):
@@ -60,7 +62,12 @@ def main(config_path: str, capture_path: str, catalog_path: str, pairs: list[str
         for key in COPIED:
             if key in src:
                 dst[key] = copy.deepcopy(src[key])
-        dst["premium_gating_entitlement"] = f"{target}_premium"
+        if target == source:
+            # A pass served under its own id (vault, event and Reward Cache passes, D30): its own gate, open window.
+            dst["premium_gating_entitlement"] = src["premium_gating_entitlement"]
+            dst["start_date"], dst["end_date"] = OPEN_WINDOW
+        else:
+            dst["premium_gating_entitlement"] = f"{target}_premium"
         links = [l for l in src.get("also_progress", []) if l.get("progression_id") in by_id]
         if links:
             dst["also_progress"] = copy.deepcopy(links)

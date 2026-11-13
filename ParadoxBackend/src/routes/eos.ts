@@ -20,6 +20,7 @@ import { HashOpaqueToken } from "../security/launcherTokens";
 import { IsAccountEligible } from "../security/accountEligibility";
 import { LauncherApiError } from "../security/launcherErrors";
 import { BindRealmPresenceAtLogin } from "../realms/entry";
+import { ApplyAccountGrants } from "../accountGrants";
 import {
     AssertRuntimeChannelMatchesAccount,
     AssertRuntimeHashApproved,
@@ -282,6 +283,9 @@ eosRouter.post("/account/api/oauth/token", async (req, res) => {
             res.send();
             return;
         }
+
+        // dauntless-nix D30: operator grants (account_grants.json), idempotent; never blocks the login.
+        await ApplyAccountGrants(CodeRecord.userId);
 
         logger.info("Logging in a user via a launcher exchange code.");
 
