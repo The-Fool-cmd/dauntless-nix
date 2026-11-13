@@ -65,12 +65,12 @@ servers at run time. Phases are listed in order; each one gates the next.
   still to do.
 
 ## Next
-1. Deployment approach for the server that lives entirely in this repo (no edits to the host's system
-   configuration). See the options in the session handoff.
-2. The game's backend address in production: test HTTPS with the self-signed certificate, or add a tunnel/LAN-only
-   plain-HTTP listener. Then finalize docs/LINUX_PLAYER.md step 3.
-3. Remaining game data: the Hunt Pass (`season43`), Lady Luck, and the Ramsgate-only exports.
-4. Phase 5 play-test (Ramsgate, party, hunt; progression persists across a restart). Phase 6: backups, operator
+1. Deployed on the server host 2026-11-13 (D25): LAN pong/HTTPS/3080 verified, Ramsgate hub up under Wine. The
+   remote player's WireGuard peer is still to add.
+2. Remaining game data: Hunt Pass rewards per season (the `season43` path is a reward-less skeleton from
+   `tools/data/add-season-path.py`, which the hub needs), Lady Luck, and the Ramsgate-only exports (hunt tables:
+   until then no hunt resolves).
+3. Phase 5 play-test (Ramsgate, party, hunt; progression persists across a restart). Phase 6: backups, operator
    README, registration approval.
 
 Player guide: docs/LINUX_PLAYER.md.

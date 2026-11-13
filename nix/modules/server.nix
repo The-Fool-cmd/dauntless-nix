@@ -73,11 +73,74 @@ let
     MYSTICPARADOX_EMAIL_VERIFICATION = "off";    # no SMTP; accounts are created by the operator's own players
     # Login-screen status line: never the official "Welcome to Mystic Paradox!" on this server (ADDITIONAL_TERMS 2-4).
     MYSTICPARADOX_STATUS_MESSAGE = cfg.statusMessage;
+    GAMESERVER_HUNTPASS_ID = cfg.huntPass.season;
     LOG_LEVEL = "info";
   } // cfg.backend.extraEnvironment;
 
   # systemd expands %-specifiers in Environment=; the socket URI is percent-encoded, so double every %.
   systemdEnv = lib.mapAttrs (_: v: lib.replaceStrings [ "%" ] [ "%%" ] v) backendEnv;
+
+  backendLocation = {
+    proxyPass = "http://127.0.0.1:${toString cfg.backend.port}";
+    extraConfig = ''
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $dauntless_connection_upgrade;
+      proxy_read_timeout 3600s;
+    '';
+  };
+
+  # Every dauntless unit is part of dauntless.target: `dauntless up` starts it, `dauntless down` stops all of it.
+  target = "dauntless.target";
+  inTarget = { wantedBy = [ target ]; partOf = [ target ]; };
+  # Operator-visible settings (no secrets): the runtime Hunt Pass override lives here, outside the 0750 stateDir.
+  settingsDir = "/var/lib/dauntless-nix-settings";
+  huntPassFile = "${settingsDir}/huntpass.env";
+  operatorUnits = [ target "dauntless-backend.service" "dauntless-director.service" "podman-dauntless-mongodb.service" ];
+
+  cli = pkgs.writeShellApplication {
+    name = "dauntless";
+    runtimeInputs = [ pkgs.systemd pkgs.curl pkgs.coreutils pkgs.gnugrep ];
+    text = ''
+      units=(${lib.concatStringsSep " " operatorUnits})
+      seasons="${lib.concatStringsSep " " cfg.huntPass.seasons}"
+      current_season() {
+        if [ -r ${huntPassFile} ] && grep -q '^GAMESERVER_HUNTPASS_ID=' ${huntPassFile}; then
+          grep -m1 '^GAMESERVER_HUNTPASS_ID=' ${huntPassFile} | cut -d= -f2-
+        else echo "${cfg.huntPass.season} (default)"; fi
+      }
+      wait_backend() {
+        for _ in $(seq 1 90); do
+          # Any HTTP answer (even 404) means the backend listens.
+          if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:${toString cfg.backend.port}/)" != 000 ]; then return 0; fi
+          sleep 1
+        done
+        return 1
+      }
+      case "''${1:-status}" in
+        up|start)
+          systemctl start ${target}
+          if wait_backend; then echo "dauntless: up (Hunt Pass: $(current_season))"
+          else echo "dauntless: backend did not answer within 90 s; see: dauntless logs" >&2; exit 1; fi ;;
+        # Name every unit: stopping only the target would return before its PartOf units have stopped.
+        down|stop) systemctl stop "''${units[@]}"; echo "dauntless: down" ;;
+        restart) systemctl stop "''${units[@]}"; exec "$0" up ;;
+        status)
+          systemctl list-units --all --no-pager --plain --no-legend "''${units[@]}" 'dauntless-*' | cut -c1-100
+          echo "Hunt Pass: $(current_season)" ;;
+        logs) shift; exec journalctl --no-pager -n "''${LINES_BACK:-200}" -u 'dauntless-*' -u podman-dauntless-mongodb.service "$@" ;;
+        season)
+          if [ $# -lt 2 ]; then echo "Hunt Pass: $(current_season)"; echo "available: $seasons (or: default)"; exit 0; fi
+          case " $seasons default " in *" $2 "*) ;; *) echo "unknown season '$2'; available: $seasons default" >&2; exit 2 ;; esac
+          systemctl start "dauntless-huntpass@$2.service"
+          echo "Hunt Pass: $(current_season) (running servers were restarted; players log in again)" ;;
+        *) echo "usage: dauntless up|down|restart|status|logs [-f]|season [ID|default]" >&2; exit 2 ;;
+      esac
+    '';
+  };
 in
 {
   options.services.dauntless-nix = {
@@ -121,6 +184,57 @@ in
       description = ''
         Seed missing game-data files from the upstream *.example.json fixtures. Startup/smoke tests only:
         synthetic data is NOT playable. Real files you place in ''${stateDir}/game-data are never overwritten.
+      '';
+    };
+
+    autoStart = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Start the server at boot. When false, nothing runs until an operator types `dauntless up` (dauntless.target);
+        nginx and the WireGuard interface stay up either way.
+      '';
+    };
+
+    operators = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "alice" ];
+      description = "Users allowed to run `dauntless up/down/restart/season` without sudo (polkit, dauntless units only).";
+    };
+
+    huntPass = {
+      season = mkOption {
+        type = types.str;
+        default = "season43";
+        description = "The Hunt Pass the server runs (GET /huntpass). `dauntless season <id>` overrides it at run time.";
+      };
+      seasons = mkOption {
+        type = types.listOf types.str;
+        # The rows the 1.14.7 client's HuntPassSeasonDataTable enables (routes/system.ts DEFAULT_RECENT_SEASONS).
+        default = [ "season43" "season44" "season45" "season46" "season47" "season48" "season49" "season50" ];
+        description = "Seasons an operator may switch to. Progress is kept per season, so switching back resumes it.";
+      };
+    };
+
+    gameDataDir = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "/srv/dauntless/game-data";
+      description = ''
+        Host directory (not the Nix store: this data comes from the game) with real game-data JSON files, e.g. the
+        assembled progression_config.json, and an optional hunt-data/ subdirectory. Installed into the state
+        directory on every start when changed, over the synthetic examples.
+      '';
+    };
+
+    plainHttpPort = mkOption {
+      type = types.nullOr types.port;
+      default = null;
+      example = 3080;
+      description = ''
+        Also serve the backend (HTTP + WebSocket) over plain HTTP on this port, opened only where 80/443 are (the
+        firewall interfaces and the tunnel). For clients pointed at http://<publicHost>:<port>.
       '';
     };
 
@@ -190,7 +304,50 @@ in
     assertions = [
       { assertion = cfg.tls.mode != "files" || (cfg.tls.certFile != null && cfg.tls.keyFile != null);
         message = "services.dauntless-nix.tls.mode = \"files\" needs certFile and keyFile."; }
+      { assertion = lib.elem cfg.huntPass.season cfg.huntPass.seasons;
+        message = "services.dauntless-nix.huntPass.season must be one of huntPass.seasons."; }
     ];
+
+    systemd.targets.dauntless = {
+      description = "dauntless-nix: the whole server (dauntless up / down)";
+      wantedBy = lib.optional cfg.autoStart "multi-user.target";
+    };
+
+    environment.systemPackages = [ cli ];
+    users.groups.dauntless-operators.members = cfg.operators;
+    security.polkit.enable = lib.mkDefault true;
+    security.polkit.extraConfig = ''
+      polkit.addRule(function (action, subject) {
+        if (action.id == "org.freedesktop.systemd1.manage-units" && subject.isInGroup("dauntless-operators")) {
+          var unit = action.lookup("unit"), verb = action.lookup("verb");
+          var units = ${builtins.toJSON operatorUnits};
+          if ((units.indexOf(unit) >= 0 || /^dauntless-huntpass@[A-Za-z0-9_]+\.service$/.test(unit)) &&
+              ["start", "stop", "restart", "try-restart"].indexOf(verb) >= 0) {
+            return polkit.Result.YES;
+          }
+        }
+      });
+    '';
+
+    # `dauntless season <id>`: validated, written to huntpass.env, then running servers pick it up.
+    systemd.services."dauntless-huntpass@" = {
+      description = "dauntless-nix: switch the Hunt Pass to %i";
+      path = [ pkgs.coreutils pkgs.systemd ];
+      scriptArgs = "%i";
+      serviceConfig.Type = "oneshot";
+      script = ''
+        set -euo pipefail
+        case "$1" in
+          default) rm -f ${huntPassFile} ;;
+          ${lib.concatStringsSep "|" cfg.huntPass.seasons})
+            install -d -m 0755 ${settingsDir}
+            echo "GAMESERVER_HUNTPASS_ID=$1" > ${huntPassFile}.tmp
+            chmod 0644 ${huntPassFile}.tmp; mv ${huntPassFile}.tmp ${huntPassFile} ;;
+          *) echo "unknown season: $1" >&2; exit 2 ;;
+        esac
+        systemctl try-restart dauntless-backend.service dauntless-director.service
+      '';
+    };
 
     users.users.dauntless = { isSystemUser = true; group = "dauntless"; extraGroups = [ "dauntless-db" ]; };
     users.groups.dauntless = { };
@@ -216,9 +373,9 @@ in
     # ---- one-time secret + state initialisation (idempotent) ----
     systemd.services.dauntless-nix-init = {
       description = "dauntless-nix: generate backend secrets, TLS and seed data (first run only)";
-      wantedBy = [ "multi-user.target" ];
+      inherit (inTarget) wantedBy partOf;
       after = [ "systemd-tmpfiles-setup.service" ];
-      path = [ pkgs.openssl pkgs.coreutils pkgs.nodejs_22 ];
+      path = [ pkgs.openssl pkgs.coreutils pkgs.diffutils pkgs.nodejs_22 ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0077"; };
       script = ''
         set -euo pipefail
@@ -260,13 +417,25 @@ in
             if [ ! -e "$dest" ]; then install -o dauntless -g dauntless -m 0640 "$f" "$dest"; fi
           done
         ''}
+
+        ${lib.optionalString (cfg.gameDataDir != null) ''
+          src=${lib.escapeShellArg cfg.gameDataDir}
+          for sub in "" hunt-data/; do
+            dir=game-data; [ -n "$sub" ] && dir=hunt-data
+            for f in "$src/$sub"*.json; do
+              [ -e "$f" ] || continue
+              dest=${cfg.stateDir}/$dir/$(basename "$f")
+              if ! cmp -s "$f" "$dest"; then install -o dauntless -g dauntless -m 0640 "$f" "$dest"; echo "installed $dir/$(basename "$f")"; fi
+            done
+          done
+        ''}
       '';
     };
 
     # ---- runtime feed: sign + publish the Nix-built runtime for clients (upstream publish-runtime-update.mjs) ----
     systemd.services.dauntless-runtime-publish = mkIf (cfg.runtime != null) {
       description = "dauntless-nix: sign and publish the client runtime to the update feed";
-      wantedBy = [ "multi-user.target" ];
+      inherit (inTarget) wantedBy partOf;
       before = [ "dauntless-backend.service" ];
       after = [ "dauntless-nix-init.service" ];
       requires = [ "dauntless-nix-init.service" ];
@@ -302,13 +471,15 @@ in
         "--unixSocketPrefix" mongoSockDir "--filePermissions" "0770"
       ];
       extraOptions = [ "--network=none" ];
+      autoStart = false;   # dauntless.target starts it
     };
+    systemd.services.podman-dauntless-mongodb = inTarget;
 
     systemd.services.dauntless-mongodb-rs-init = {
       description = "dauntless-nix: initiate the single-node MongoDB replica set (idempotent)";
       after = [ "podman-dauntless-mongodb.service" ];
       requires = [ "podman-dauntless-mongodb.service" ];
-      wantedBy = [ "multi-user.target" ];
+      inherit (inTarget) wantedBy partOf;
       path = [ config.virtualisation.podman.package ];
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
       script = ''
@@ -329,7 +500,7 @@ in
     # ---- backend ----
     systemd.services.dauntless-backend = {
       description = "dauntless-nix backend (ParadoxBackend)";
-      wantedBy = [ "multi-user.target" ];
+      inherit (inTarget) wantedBy partOf;
       after = [ "network.target" "dauntless-nix-init.service" "dauntless-mongodb-rs-init.service" ];
       requires = [ "dauntless-nix-init.service" "dauntless-mongodb-rs-init.service" ];
       environment = systemdEnv;
@@ -339,7 +510,8 @@ in
         SupplementaryGroups = [ "dauntless-db" ];
         # logger.ts writes ../debug/metagame relative to cwd, so cwd is ${stateDir}/backend.
         WorkingDirectory = "${cfg.stateDir}/backend";
-        EnvironmentFile = [ "${cfg.stateDir}/secrets/backend.env" ] ++ cfg.backend.extraEnvironmentFiles;
+        # The run-time Hunt Pass override (`dauntless season`) wins over the configured default.
+        EnvironmentFile = [ "${cfg.stateDir}/secrets/backend.env" "-${huntPassFile}" ] ++ cfg.backend.extraEnvironmentFiles;
         ExecStart = lib.getExe cfg.package;
         Restart = "on-failure";
         RestartSec = 5;
@@ -383,6 +555,12 @@ in
           root = "/var/lib/acme/acme-challenge";
         };
       };
+      virtualHosts."${cfg.publicHost}-plain" = mkIf (cfg.plainHttpPort != null) {
+        serverName = cfg.publicHost;
+        listen = [ { addr = "0.0.0.0"; port = cfg.plainHttpPort; } { addr = "[::]"; port = cfg.plainHttpPort; } ];
+        extraConfig = "client_max_body_size 64m;";
+        locations."/" = backendLocation;
+      };
       virtualHosts."${cfg.publicHost}" = {
         listen = [ { addr = "0.0.0.0"; port = 443; ssl = true; } { addr = "[::]"; port = 443; ssl = true; } ];
         onlySSL = true;
@@ -391,18 +569,7 @@ in
         sslCertificate = mkIf (cfg.tls.mode != "acme") certFile;
         sslCertificateKey = mkIf (cfg.tls.mode != "acme") keyFile;
         extraConfig = "client_max_body_size 64m;";
-        locations."/" = {
-          proxyPass = "http://127.0.0.1:${toString cfg.backend.port}";
-          extraConfig = ''
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection $dauntless_connection_upgrade;
-            proxy_read_timeout 3600s;
-          '';
-        };
+        locations."/" = backendLocation;
       };
     };
     systemd.services.nginx = {
@@ -414,7 +581,7 @@ in
     };
 
     networking.firewall = mkIf cfg.openFirewall (
-      if cfg.firewall.interfaces == [ ] then { allowedTCPPorts = [ 80 443 ]; }
-      else { interfaces = lib.genAttrs cfg.firewall.interfaces (_: { allowedTCPPorts = [ 80 443 ]; }); });
+      if cfg.firewall.interfaces == [ ] then { allowedTCPPorts = [ 80 443 ] ++ lib.optional (cfg.plainHttpPort != null) cfg.plainHttpPort; }
+      else { interfaces = lib.genAttrs cfg.firewall.interfaces (_: { allowedTCPPorts = [ 80 443 ] ++ lib.optional (cfg.plainHttpPort != null) cfg.plainHttpPort; }); });
   };
 }

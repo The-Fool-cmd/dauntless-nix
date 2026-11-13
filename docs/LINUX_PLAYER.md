@@ -88,7 +88,7 @@ Save the operator's `server.pem` as `~/.config/dauntless-nix/server.pem`, then w
     {
       "server": "https://<server address>",
       "caCertFile": "~/.config/dauntless-nix/server.pem",
-      "gameBackendUrl": "<game backend address from the operator>",
+      "gameBackendUrl": "http://<server address>:3080",
       "runtimePublicKey": "<runtime public key from the operator>",
       "gameDir": "~/Games/dauntless-1.14.7/Dauntless",
       "instanceDir": "~/Games/dauntless-1.14.7/instance/Dauntless",
@@ -96,8 +96,9 @@ Save the operator's `server.pem` as `~/.config/dauntless-nix/server.pem`, then w
       "protonPrefix": "~/Games/dauntless-1.14.7/prefixes/client"
     }
 
-`gameBackendUrl` is the address the game itself uses (`MYSTICPARADOX_BACKEND_URL`). The operator gives you the exact
-value; it is not the same as `server`.
+`gameBackendUrl` is the address the game itself uses (`MYSTICPARADOX_BACKEND_URL`): plain HTTP on the server's
+`plainHttpPort`, e.g. `http://10.77.0.1:3080`. It is not the same as `server`. It is unencrypted only inside the
+WireGuard tunnel or your LAN.
 
 ## 4. Play
 

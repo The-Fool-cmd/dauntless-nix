@@ -394,3 +394,24 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   itself, and a read-only source (a Nix store path) leaves a read-only copy. So the module's publish service would
   have failed on **every boot after the first**. A `publishCopy` helper now skips same-path copies and writes
   `0644`. The VM test now restarts the publish service twice.
+
+## D25 — On-demand server, operator command, run-time Hunt Pass, plain-HTTP game port (2026-11-13)
+- **Context:** the server host runs other services; the game server should run only when someone plays, and be
+  controlled over SSH without root. The live service rotated Hunt Passes; the 1.14.7 client enables `season43`…
+  `season50`. The game's backend address in production was open (D23: plain HTTP is what we verified).
+- **Decision:**
+  - Every unit (init, runtime publish, MongoDB, replica-set init, backend, Director) is part of `dauntless.target`.
+    `autoStart = false` keeps the target out of `multi-user.target`. nginx and WireGuard stay up (502 while down).
+  - `dauntless up|down|restart|status|logs|season` is installed system-wide. A polkit rule lets members of
+    `dauntless-operators` (`services.dauntless-nix.operators`) start, stop and restart only the dauntless units.
+  - `huntPass.season` (default `season43`) sets `GAMESERVER_HUNTPASS_ID`. `dauntless season <id>|default` runs the
+    root template `dauntless-huntpass@<id>`, which accepts only `huntPass.seasons`, writes
+    `/var/lib/dauntless-nix-settings/huntpass.env` (the backend's last EnvironmentFile, so it wins) and try-restarts
+    the backend and Director. Progress is stored per track id, so a new season starts at rank 0 and switching back
+    resumes. Tier rewards are still the cloned `season43` path for every season (data still open).
+  - `plainHttpPort` adds an nginx plain-HTTP vhost (HTTP + WebSocket) opened only where 80/443 are: the firewall
+    interfaces and the tunnel. Players use `gameBackendUrl = http://<publicHost>:<port>`, the transport D23 verified.
+  - `gameDataDir` installs host-side real game data (not in the store: it derives from the game) on every start.
+- **Verified:** the VM test boots with nothing running, an unprivileged operator runs `dauntless up`, cannot touch
+  other units, switches `season44` and back, reaches the plain-HTTP port from the LAN and the tunnel, and
+  `dauntless down` stops everything.
