@@ -423,3 +423,8 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   client dropped them. Tunnel peers were unaffected, which is why the VM test passed.
 - **Decision:** the Director passes `-MULTIHOME=<MY_IP>` to every game server (`GAMESERVER_MULTIHOME=off` disables
   it, another value overrides it). The VM test checks the argument.
+- **Correction (same day, measured on the server):** Wine implements a bind to a specific address as
+  `0.0.0.0` + SO_BINDTODEVICE on the interface owning it (`ss` shows `0.0.0.0%wg-dauntless:8790`), so the servers
+  only accept packets that arrive on the tunnel. It does not help a LAN player; it does confine game UDP to the
+  tunnel. **Every player, LAN included, joins the WireGuard tunnel** (a LAN player uses the server's LAN address as
+  the endpoint). The static LAN route to the tunnel address is not used.
