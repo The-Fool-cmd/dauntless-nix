@@ -113,6 +113,8 @@ let
   settingsDir = "/var/lib/dauntless-nix-settings";
   huntPassFile = "${settingsDir}/huntpass.env";
   operatorUnits = [ target "dauntless-backend.service" "dauntless-director.service" "podman-dauntless-mongodb.service" ];
+  # `dauntless collect-logs`: root gathers the 0750 log dirs into an archive only operators can read.
+  logArchiveDir = "/var/lib/dauntless-nix-logs";
 
   cli = pkgs.writeShellApplication {
     name = "dauntless";
@@ -144,13 +146,17 @@ let
         status)
           systemctl list-units --all --no-pager --plain --no-legend "''${units[@]}" 'dauntless-*' | cut -c1-100
           echo "Hunt Pass: $(current_season)" ;;
+        collect-logs)
+          systemctl start dauntless-collect-logs.service
+          archives=(${logArchiveDir}/dauntless-logs-*.tar.gz)   # UTC timestamps: the glob sorts oldest first
+          echo "dauntless: ''${archives[-1]}" ;;
         logs) shift; exec journalctl --no-pager -n "''${LINES_BACK:-200}" -u 'dauntless-*' -u podman-dauntless-mongodb.service "$@" ;;
         season)
           if [ $# -lt 2 ]; then echo "Hunt Pass: $(current_season)"; echo "available: $seasons (or: default)"; exit 0; fi
           case " $seasons default " in *" $2 "*) ;; *) echo "unknown season '$2'; available: $seasons default" >&2; exit 2 ;; esac
           systemctl start "dauntless-huntpass@$2.service"
           echo "Hunt Pass: $(current_season) (running servers were restarted; players log in again)" ;;
-        *) echo "usage: dauntless up|down|restart|status|logs [-f]|season [ID|default]" >&2; exit 2 ;;
+        *) echo "usage: dauntless up|down|restart|status|logs [-f]|collect-logs|season [ID|default]" >&2; exit 2 ;;
       esac
     '';
   };
@@ -359,7 +365,7 @@ in
         if (action.id == "org.freedesktop.systemd1.manage-units" && subject.isInGroup("dauntless-operators")) {
           var unit = action.lookup("unit"), verb = action.lookup("verb");
           var units = ${builtins.toJSON operatorUnits};
-          if ((units.indexOf(unit) >= 0 || /^dauntless-huntpass@[A-Za-z0-9_]+\.service$/.test(unit)) &&
+          if ((units.indexOf(unit) >= 0 || unit == "dauntless-collect-logs.service" || /^dauntless-huntpass@[A-Za-z0-9_]+\.service$/.test(unit)) &&
               ["start", "stop", "restart", "try-restart"].indexOf(verb) >= 0) {
             return polkit.Result.YES;
           }
@@ -384,6 +390,35 @@ in
           *) echo "unknown season: $1" >&2; exit 2 ;;
         esac
         systemctl try-restart dauntless-backend.service dauntless-director.service
+      '';
+    };
+
+    # Game-server, Director and backend logs from the last two days, plus the journal. Root reads the 0750
+    # dirs; the archive is group-readable by dauntless-operators only (it holds account names and ids).
+    systemd.services.dauntless-collect-logs = {
+      description = "dauntless-nix: collect server logs for operators";
+      path = [ pkgs.coreutils pkgs.findutils pkgs.gnutar pkgs.gzip pkgs.systemd ];
+      serviceConfig = { Type = "oneshot"; UMask = "0027"; };
+      script = ''
+        set -euo pipefail
+        install -d -m 0750 -o root -g dauntless-operators ${logArchiveDir}
+        work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
+        out=dauntless-logs-$(date -u +%Y%m%dT%H%M%SZ)
+        mkdir "$work/$out"
+        journalctl --no-pager --since -2d -u 'dauntless-*' -u podman-dauntless-mongodb.service \
+          > "$work/$out/journal.txt" || true
+        cd /
+        # Relative paths keep the layout readable: var/lib/dauntless-nix/director/logs/port8780_hunt.log, ...
+        find ${lib.removePrefix "/" cfg.stateDir}/director/logs ${lib.removePrefix "/" cfg.stateDir}/director/debug \
+             ${lib.removePrefix "/" cfg.stateDir}/director/game/Archon/Binaries/Win64 \
+             ${lib.removePrefix "/" cfg.stateDir}/debug ${lib.removePrefix "/" cfg.stateDir}/launcher-logs \
+             -maxdepth 4 -type f \( -name '*.log' -o -name '*.txt' -o -name '*.json' \) -mtime -2 \
+             2>/dev/null > "$work/files" || true
+        xargs -r -d '\n' cp --parents -t "$work/$out" < "$work/files" || true
+        tar -C "$work" -czf "${logArchiveDir}/$out.tar.gz.tmp" "$out"
+        chgrp dauntless-operators "${logArchiveDir}/$out.tar.gz.tmp"; chmod 0640 "${logArchiveDir}/$out.tar.gz.tmp"
+        mv "${logArchiveDir}/$out.tar.gz.tmp" "${logArchiveDir}/$out.tar.gz"
+        ls -1t ${logArchiveDir}/dauntless-logs-*.tar.gz | tail -n +6 | xargs -r rm -f --
       '';
     };
 

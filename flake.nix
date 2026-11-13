@@ -59,6 +59,7 @@
         };
         gameserver-wine = pkgs.callPackage ./nix/pkgs/gameserver-wine.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
+        deploy-runtime = pkgs.callPackage ./nix/pkgs/deploy-runtime.nix { };
         default = self.packages.${system}.legendary;
       } // lib.optionalAttrs msvcAccepted (removeAttrs (msvcPackagesFor pkgsMsvc) [ "runtime" "catalog-exporter" ]);
 

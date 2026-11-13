@@ -9,6 +9,24 @@ Over SSH on the server: `dauntless up` (start), `down`, `restart`, `status`, `lo
 lines; extra arguments go to `journalctl`, e.g. `--since today`), and `season [ID|default]` (the default Hunt Pass).
 It starts at boot unless `services.dauntless-nix.autoStart = false` (then only `dauntless up` starts it).
 
+`dauntless collect-logs` (D39) gathers the last two days of logs that only root can read (Director, every game
+server's output and DLL log, backend debug, launcher uploads) plus the journal into
+`/var/lib/dauntless-nix-logs/dauntless-logs-<UTC time>.tar.gz`, readable by `dauntless-operators` only, and prints
+its path. The five newest archives are kept. They hold account names and ids: share them with care.
+
+## Updating the runtime (D39)
+
+The runtime DLLs are built where the MSVC licence was accepted, then pinned in the host config with
+`pkgs.requireFile { name = "dauntless-nix-runtime"; hashMode = "recursive"; hash = ...; }`. From the build machine:
+
+```bash
+nix run .#deploy-runtime -- <user>@<server> <runtime build output> [path/to/host-module.nix]
+```
+
+It copies the two DLLs, adds them to the server's Nix store as that (unprivileged) user, checks that the server's
+NAR hash matches the local one, and, given the host module, rewrites the pinned hash. Then rebuild the server and
+`dauntless restart`.
+
 ## Backups (D32)
 
 `services.dauntless-nix.backup` (on by default) dumps MongoDB with `mongodump --archive --gzip`:
