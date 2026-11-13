@@ -65,12 +65,13 @@ servers at run time. Phases are listed in order; each one gates the next.
   still to do.
 
 ## Next
-1. Deployed on the server host 2026-11-13 (D25): LAN pong/HTTPS/3080 verified, Ramsgate hub up under Wine. The
-   remote player's WireGuard peer is still to add.
-2. Remaining game data: Hunt Pass rewards per season (the `season43` path is a reward-less skeleton from
-   `tools/data/add-season-path.py`, which the hub needs), Lady Luck, and the Ramsgate-only exports (hunt tables:
-   until then no hunt resolves).
-3. Phase 5 play-test (Ramsgate, party, hunt; progression persists across a restart). Phase 6: backups, operator
-   README, registration approval.
+First real play-test 2026-11-13: login and Ramsgate work on the deployed server (D25–D27).
+1. Hunts: export the hunt tables (EXPORT_HUNTS) from a client in Ramsgate; until then no hunt resolves.
+2. Game data still synthetic: Hunt Pass rewards (season43 is a reward-less skeleton), Reward Cache, Lady Luck,
+   Slayer's Path, mastery objectives, platinum store, Heroic Escalation tuning.
+3. Operations: collect game-server logs without root, MongoDB backups, progression persistence across a restart,
+   scripted runtime deployment, registration approval.
+4. Remote player onboarding over WireGuard; play-test a party and a hunt together.
+5. Report the Dumper-7 Blueprint-lookup bug upstream (D27).
 
 Player guide: docs/LINUX_PLAYER.md.
