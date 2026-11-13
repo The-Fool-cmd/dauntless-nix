@@ -140,6 +140,8 @@ in pkgs.testers.runNixOSTest {
     with subtest("Director brings up Ramsgate and the Training Grounds via the game-server binary"):
         server.wait_until_succeeds("journalctl -u dauntless-director -b | grep -q 'ready on ${wgServerIp}:8790'", timeout=180)
         server.wait_until_succeeds("journalctl -u dauntless-director -b | grep -q 'ready on ${wgServerIp}:8789'", timeout=180)
+        # Bound to the public address, so LAN players routed to it get replies from it (not from the LAN address).
+        server.succeed("pgrep -af stub-gameserver | grep -q -- '-MULTIHOME=${wgServerIp}'")
 
     with subtest("Director API is loopback-only"):
         server.succeed("ss -ltnH 'sport = :3011' | grep -q '127.0.0.1:3011'")
@@ -171,6 +173,8 @@ in pkgs.testers.runNixOSTest {
             # Read the running backend's environment (just after a restart the new process may not have exec'd yet).
             server.wait_until_succeeds("tr '\\0' '\\n' < /proc/$(systemctl show -P MainPID dauntless-backend.service)/environ"
                                        f" | grep -qx GAMESERVER_HUNTPASS_ID={want}", timeout=60)
+            # Ready before the next switch: a restart during startup aborts it (a logged "Fatal startup error").
+            server.wait_until_succeeds("curl -s -o /dev/null http://127.0.0.1:3000/", timeout=120)
         assert_season("season43")
         server.fail("su - op -c 'dauntless season season99'")
         server.succeed("su - op -c 'dauntless season season44' >&2")

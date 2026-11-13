@@ -415,3 +415,11 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Verified:** the VM test boots with nothing running, an unprivileged operator runs `dauntless up`, cannot touch
   other units, switches `season44` and back, reaches the plain-HTTP port from the LAN and the tunnel, and
   `dauntless down` stops everything.
+
+## D26 — Game servers bind to their public address (-MULTIHOME) (2026-11-13)
+- **Context:** first LAN play-test: the client reached the backend and was matched to Ramsgate at 10.77.0.1:8790, then
+  "The server network connection timed out" with nothing ever received. The servers bound 0.0.0.0, so replies to a
+  LAN player (routed to the tunnel address over the LAN) left with the host's LAN address as the source and the
+  client dropped them. Tunnel peers were unaffected, which is why the VM test passed.
+- **Decision:** the Director passes `-MULTIHOME=<MY_IP>` to every game server (`GAMESERVER_MULTIHOME=off` disables
+  it, another value overrides it). The VM test checks the argument.
