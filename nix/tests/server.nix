@@ -171,6 +171,9 @@ in pkgs.testers.runNixOSTest {
         server.wait_for_unit("dauntless-runtime-publish.service")
         key = server.succeed("cat /var/lib/dauntless-nix/updates/runtime-public-key.b64").strip()
         cert = server.succeed("cat /var/lib/dauntless-nix-tls/fullchain.pem")
+        # Every boot re-runs the publish with the same bytes: it must stay a no-op, not fail.
+        server.succeed("systemctl restart dauntless-runtime-publish.service")
+        server.succeed("systemctl restart dauntless-runtime-publish.service")
         manifest = json.loads(remote.succeed("curl -skf https://${host}/launcher/v1/runtime/stable/windows-x86_64"))
         assert manifest["targetChangelist"] == 647472 and {e["name"] for e in manifest["extraFiles"]} == {"winmm.dll"}, manifest
 

@@ -30,6 +30,8 @@
       msvcPackagesFor = p: rec {
         msvc-toolchain = p.callPackage ./nix/pkgs/msvc-toolchain.nix { };
         dumper7 = p.callPackage ./nix/pkgs/dumper7.nix { msvcToolchain = msvc-toolchain; };
+        # catalog-exporter { sdk = <CppSDK store path>; }
+        catalog-exporter = args: p.callPackage ./nix/pkgs/catalog-exporter.nix ({ msvcToolchain = msvc-toolchain; } // args);
         # runtime { sdk = <CppSDK store path>; publicHost = "..."; }
         runtime = args: p.callPackage ./nix/pkgs/runtime.nix ({
           msvcToolchain = msvc-toolchain;
@@ -50,7 +52,7 @@
         gameserver-wine = pkgs.callPackage ./nix/pkgs/gameserver-wine.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
-      } // lib.optionalAttrs msvcAccepted (removeAttrs (msvcPackagesFor pkgsMsvc) [ "runtime" ]);
+      } // lib.optionalAttrs msvcAccepted (removeAttrs (msvcPackagesFor pkgsMsvc) [ "runtime" "catalog-exporter" ]);
 
       # For modules / downstream flakes: lib.msvcPackages { acceptMicrosoftVisualStudioLicense = true; }
       lib.msvcPackages = args: msvcPackagesFor (mkPkgs args);
