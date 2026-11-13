@@ -570,7 +570,10 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   SDL2 recognises it as a game controller, but plain `steam-run` ships no `libSDL2`, so pads that the kernel drives
   as generic HID (e.g. a GameSir G7 Pro in HID mode) never reached the game. Steam Input does not help either: it
   applies only to games that Steam itself starts.
-- **Chosen:** `nix/pkgs/proton-run.nix` uses `(steam.override { extraLibraries = p: [ p.SDL2 ]; }).run`
-  (sdl2-compat, 32- and 64-bit). Servers keep plain `steam-run`.
-- **Verified:** `libSDL2-2.0.so.0` is present in the new sandbox, and that SDL2 reports the HID-mode GameSir as a game
-  controller (`SDL_IsGameController` = 1). In-game check pending.
+- **Chosen:** `nix/pkgs/proton-run.nix` uses `(steam.override { extraLibraries = p: [ p.SDL2 p.sdl3 ]; }).run`
+  (32- and 64-bit). nixpkgs' SDL2 is sdl2-compat, which fails ("Failed loading SDL3 library.") without libSDL3 in the
+  sandbox. Servers keep plain `steam-run`.
+- **Also:** the wrapper's default `WINEDEBUG` drops Proton's `+seh` channel, which grew one session's log to 5 GB;
+  `+loaddll`, `+threadname` and `err` stay (they found this bug). Setting `WINEDEBUG` still overrides it.
+- **Verified:** inside the new sandbox, SDL2 initialises and reports the HID-mode GameSir as a game controller
+  (`SDL_IsGameController` = 1). In-game check pending.

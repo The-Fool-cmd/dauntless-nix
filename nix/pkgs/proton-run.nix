@@ -6,7 +6,7 @@ let
   proton = proton-ge-bin.steamcompattool;
   # Wine's winebus only presents a controller to the game as an XInput pad when it can load SDL2
   # (D36); plain steam-run lacks it, so non-Xbox pads (e.g. HID-mode GameSir) were invisible.
-  steam-run = (steam.override { extraLibraries = pkgs: [ pkgs.SDL2 ]; }).run;
+  steam-run = (steam.override { extraLibraries = pkgs: [ pkgs.SDL2 pkgs.sdl3 ]; }).run;
 in writeShellApplication {
   name = "dauntless-proton";
   runtimeInputs = [ steam-run ];
@@ -24,6 +24,9 @@ in writeShellApplication {
     export PROTON_LOG="''${PROTON_LOG:-1}"
     export PROTON_LOG_DIR="''${PROTON_LOG_DIR:-$prefix/logs}"
     mkdir -p "$PROTON_LOG_DIR"
+    # Proton's default channels include +seh, which grew one play session's log to 5 GB (D36): keep DLL loads,
+    # thread names and errors only.
+    export WINEDEBUG="''${WINEDEBUG:-+timestamp,+pid,+tid,+loaddll,+threadname,err+all,fixme-all}"
     echo "dauntless-proton: $(cat ${proton}/version)" >&2
     exec steam-run ${proton}/proton waitforexitandrun "$@"
   '';
