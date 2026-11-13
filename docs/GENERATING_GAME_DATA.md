@@ -51,9 +51,9 @@ Copy export_flags.example.txt to export_flags.txt and enable these modes:
 | Flag | Output under Items_Analysis | Reach first |
 |---|---|---|
 | EXPORT_CATALOG=1 | catalog_1_14_7.jsonl, equipment_1_14_7.jsonl | Main menu or Ramsgate |
-| EXPORT_SLAYERS_PATH=1 | slayers_path_1_14_7/player_journey_nodes.jsonl | Open the Slayer's Path screen |
+| EXPORT_SLAYERS_PATH=1 | slayers_path_1_14_7/player_journey_nodes.jsonl | Main menu on 1.14.7 (509 nodes) |
 | EXPORT_HUNTS=1 | hunts_1_14_7/ (player_hunts.jsonl, matchmaker_hunts.jsonl, hunt_export_manifest.json and more) | Main menu (1.14.7 loads every hunt table there; no login needed) |
-| EXPORT_STORE_RUNTIME=1 | store_item_images_1_14_7.jsonl and two store view-model captures | Ramsgate, then Journal > Challenges > Reward Cache |
+| EXPORT_STORE_RUNTIME=1 | store_item_images_1_14_7.jsonl and two store view-model captures | Main menu for the images (3,168 rows on 1.14.7); the view models need Ramsgate > Journal > Challenges > Reward Cache |
 
 Inject the exporter into your own local client only. Flags are read once at injection, so re-inject
 after changing them. The exporter waits up to two minutes for the catalog to load; open the listed
@@ -120,6 +120,16 @@ Then validate and write:
 
 The generators check the shape, preview without `--apply`, and back up any file they replace. The
 synthetic examples show the expected structure but contain no real rewards or offers.
+
+> [!NOTE]
+> **dauntless-nix:** a public capture of the live service covers both files:
+> [EisigesEis/DauntlessEndpointDocumentation](https://github.com/EisigesEis/DauntlessEndpointDocumentation).
+> - **Lady Luck:** clone it at the repository root; `npm run ladyluck:enrich` reads
+>   `Store/Product/Skus/ladyluckstore.json` and serves every offer whose items your catalog has (38 of 43 on 1.14.7).
+> - **Progression:** assemble the client tracks first (`scripts/assemble_progression_config.cjs`, D24). Then
+>   `tools/data/progression-from-capture.py <progression_config.json> <capture>/Progression/Config.json <catalog>
+>   season43=season25 …` copies real Hunt Passes onto the season ids the client enables, and the prestige blocks
+>   (weapon prestige XP, the reforge Aetherheart) onto tracks whose curves match the capture (D29).
 
 ## 6. Platinum store and storage policy
 
