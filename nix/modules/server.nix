@@ -268,6 +268,17 @@ in
       '';
     };
 
+    allowedNetworks = mkOption {
+      type = types.nullOr (types.listOf types.str);
+      default = null;
+      example = [ "10.77.0.0/24" ];
+      description = ''
+        When set, the backend and the Director (with its game servers) may exchange IP traffic only with localhost and
+        these networks (systemd IPAddressAllow, IPAddressDeny=any). Every player, and publicHost, must be inside them.
+        A game server taken over by a player then cannot reach the home LAN or the internet. null = no restriction.
+      '';
+    };
+
     backend = {
       port = mkOption { type = types.port; default = 3000; description = "Loopback-only backend HTTP port."; };
       extraEnvironment = mkOption {
@@ -574,6 +585,9 @@ in
         LockPersonality = true;
         CapabilityBoundingSet = "";
         SystemCallArchitectures = "native";
+      } // lib.optionalAttrs (cfg.allowedNetworks != null) {
+        IPAddressAllow = [ "localhost" ] ++ cfg.allowedNetworks;
+        IPAddressDeny = "any";
       };
     };
 

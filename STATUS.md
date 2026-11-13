@@ -43,6 +43,8 @@ servers at run time. Phases are listed in order; each one gates the next.
   - On real hardware: the 1.14.7 client logs in to our backend off-screen and shows "Logged in as".
 - Director and WireGuard modules (D20): game ports only through the tunnel, no forwarding into the LAN
   (negative-controlled), Director API on loopback.
+- Network containment (D38): opt-in `allowedNetworks` confines the backend and game servers to localhost and the
+  tunnel; `wireguard.firewallInterfaces` scopes the WireGuard port to the forwarded interface.
 
 - Game data (D24): CatalogExporter is built in Nix and ran off-screen against our own install. `progression_config`
   is assembled for all 23 non-Hunt-Pass XP tracks (player, weapons, mastery, reforge) and accepted by upstream's
