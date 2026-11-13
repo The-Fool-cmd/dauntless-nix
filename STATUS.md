@@ -6,11 +6,11 @@ servers at run time. Phases are listed in order; each one gates the next.
 | Phase | State |
 |---|---|
 | 0. Feasibility: 1.14.7 client under Proton | ✅ Done 2026-11-12 |
-| 1. Backend + MongoDB + TLS on NixOS | ✅ Done in VM test 2026-11-13; deploy to the server with phase 5 |
+| 1. Backend + MongoDB + TLS on NixOS | ✅ Done in VM test 2026-11-13; deployed with phase 5 |
 | 2. Game-server topology (Director+Wine vs realms+coturn) | ✅ Decided 2026-11-13: dedicated hubs/hunts under Wine (D17) |
 | 3. Linux client path (launcher) | ✅ Minimal launcher (D21); real client logs in off-screen (D23) |
 | 4. Runtime DLLs without Windows | ✅ Built in Nix (D13–D16); loaded by real client and servers |
-| 5. End to end, two players over the internet | ⏭ Next: real game data, deploy to the server, play-test |
+| 5. End to end, two players over the internet | ⏭ In progress: deployed, play-testing |
 | 6. Package and harden | Not started |
 
 ## What works
@@ -21,7 +21,7 @@ servers at run time. Phases are listed in order; each one gates the next.
   - `Version.txt` is `dauntless_rel-1.14.7_Shipping_2024-04-01_14-59-21_647472`;
   - there are 611 files.
 - `nix build .#proton-run`: `dauntless-proton <prefix> <exe> [args]` runs the exe under the pinned GE-Proton11-1.
-- Client boot, on a desktop PC (RTX 4080 SUPER, driver 595.71.05, Hyprland):
+- Client boot, on a desktop PC (NVIDIA, Wayland):
   `Dauntless-Win64-Shipping.exe -NoEAC -DisableEOS -EpicPortal -windowed` renders through DXVK/D3D11, plays the
   intro and reaches the front-end screen, which shows "An error occurred while communicating with the game servers"
   (expected with no backend).
@@ -76,7 +76,7 @@ First real play-test 2026-11-13: login and Ramsgate work on the deployed server 
    tuning (optional, only realm hosts use it).
    D30: every account gets all premium passes, VIP (`ent_boost_vip`), `cc_premium` and 500 Platinum once; the 40
    cosmetic passes (vaults, event and Reward Cache passes) are served. Still to check in game: whether the client
-   lists the cosmetic passes and how it switches the selected pass. Owner: listed, selectable, elite visible (D30);
+   lists the cosmetic passes and how it switches the selected pass. In game: listed, selectable, elite visible (D30);
    the selection is now saved (D31).
 3. Operations: MongoDB backups done (D32); collect game-server logs without root, progression persistence across a restart,
    scripted runtime deployment, registration approval.

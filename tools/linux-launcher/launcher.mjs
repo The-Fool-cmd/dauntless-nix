@@ -56,7 +56,7 @@ function loadConfig() {
   for (const key of ["server", "runtimePublicKey", "gameDir", "instanceDir", "protonRun", "protonPrefix"]) {
     if (typeof cfg[key] !== "string" || cfg[key] === "") die(`config ${file}: "${key}" is required`);
   }
-  for (const key of ["gameDir", "instanceDir", "protonPrefix", "caCertFile"]) if (cfg[key]) cfg[key] = expand(cfg[key]);
+  for (const key of ["gameDir", "instanceDir", "protonPrefix", "protonRun", "caCertFile"]) if (cfg[key]) cfg[key] = expand(cfg[key]);
   if (cfg.approvedExeSha256) APPROVED_EXE_SHA256 = String(cfg.approvedExeSha256).toLowerCase();   // tests only
   cfg.server = cfg.server.replace(/\/+$/, "");
   cfg.gameBackendUrl = (cfg.gameBackendUrl ?? cfg.server).replace(/\/+$/, "");

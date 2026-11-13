@@ -1,5 +1,14 @@
 # Operations (dauntless-nix)
 
+Day-to-day tasks for the operator of a server running `nixosModules.server`. Players follow
+[LINUX_PLAYER.md](LINUX_PLAYER.md).
+
+## Commands
+
+Over SSH on the server: `dauntless up` (start), `down`, `restart`, `status`, `logs [-f]` (`LINES_BACK=n` for more
+lines; extra arguments go to `journalctl`, e.g. `--since today`), and `season [ID|default]` (the default Hunt Pass).
+It starts at boot unless `services.dauntless-nix.autoStart = false` (then only `dauntless up` starts it).
+
 ## Backups (D32)
 
 `services.dauntless-nix.backup` (on by default) dumps MongoDB with `mongodump --archive --gzip`:
@@ -43,7 +52,7 @@ sudo podman exec -e E='player@example.com' -e H="$H" dauntless-mongodb mongosh -
 
 ## Crediting a player (D35)
 
-Add an entry to `credits` in `~/dauntless-game-data/account_grants.json` on the server (no root needed):
+Add an entry to `credits` in `account_grants.json` in the server's game-data directory (no root needed):
 
 ```json
 "credits": [{ "id": "credit_1", "userId": "<account uuid>", "currency": { "CURRENCY_PLATINUM_UNIV": 150 } }]

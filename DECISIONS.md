@@ -72,11 +72,10 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   idempotent one-shot service. The backend connects with `mongodb://<socket>/?directConnection=true`.
 - **Why:**
   - The backend refuses to start without a replica-set primary (`MONGODB_PRODUCTION_REPLICA_SET_PRIMARY_REQUIRED`).
-  - With no network, nothing on the host can reach the database over TCP, including the server's `--network=host`
+  - With no network, nothing on the host can reach the database over TCP, including `--network=host`
     containers. Access is controlled by the socket directory (`0770 dauntless-db`), so there are no database
     passwords or keyfiles to manage.
-  - This follows the user's Podman preference and the bridge-network "smallest blast radius" pattern already used on
-    the server.
+  - It uses Podman and the bridge-network "smallest blast radius" pattern.
 - **Gotcha:** systemd expands `%` in `Environment=`, so the percent-encoded socket URI is escaped as `%%`.
 
 ## D9 — TLS at nginx (2026-11-13)
@@ -160,7 +159,7 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   1. clang-cl + lld-link (LLVM 21) with the MSVC CRT/STL and Windows SDK fetched by `xwin`.
   2. clang or GCC for MinGW-w64 (open source, but the Itanium C++ ABI, case-shim includes and more porting).
   3. MSVC under Wine.
-- **Chosen:** option 1. The repo owner accepted Microsoft's license terms for the xwin download on 2026-11-13.
+- **Chosen:** option 1. The operator accepted Microsoft's license terms for the xwin download on 2026-11-13.
   - nixpkgs' own `windows.sdk` (xwin, pinned VS 17.14 manifest and hash; CRT 14.44, SDK 10.0.26100) is used, gated
     by `config.microsoftVisualStudioLicenseAccepted`.
   - **This flake never accepts the license for anyone.** CLI builds opt in per command
@@ -223,7 +222,7 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Chosen:** (a). The ParadoxDirector code needs no changes: it already starts `GAMESERVER_BINARY_PATH`, reads its
   stdout, stops it with a signal and probes `kill(pid, 0)`. Its only Windows-only path (`tasklist.exe`, in the runtime
   self-updater) is already skipped on non-Windows and off by default.
-- **Capacity:** about 1.4–2 GB per server. Two hubs plus `MAX_CONCURRENT_HUNT_SERVERS` hunts, sized to the server's
+- **Capacity:** about 1.4–2 GB per server. Two hubs plus `MAX_CONCURRENT_HUNT_SERVERS` hunts, sized to the host's
   RAM.
 
 ## D18 — `dauntless-gameserver` wrapper (2026-11-13)
@@ -275,16 +274,14 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   - game servers get `MYSTICPARADOX_BACKEND_URL=http://127.0.0.1:<backend>`, the loopback backend instead of the
     public name;
   - the hunt limit defaults to 2 (two players).
-  - **Port:** the default is 3001, but the server must override it (3011), because its Uptime Kuma container
-    publishes 3001 on every interface.
+  - **Port:** the default is 3001; a host where another service already publishes 3001 overrides it (e.g. 3011).
 - **Firewall scoping:** `services.dauntless-nix.firewall.interfaces` opens 80/443 and the game UDP range only on the
-  listed interfaces. the server scopes its firewall per interface and has an IoT VLAN, so a global open would leak
-  onto it.
+  listed interfaces. On a host with several network segments, a global open would leak onto the others.
 - **`nix/modules/wireguard.nix`** (`wg-dauntless`, UDP 51821): the peer list carries public keys, and the server key
   is generated on the host. A guard runs before the NixOS firewall's accepts, for both the iptables and nftables
   backends:
   - on the tunnel, only 80/443 and the game UDP range are accepted, even if the host opens other ports elsewhere;
-  - nothing arriving from the tunnel is forwarded. the server has `ip_forward` on (Podman), and without this
+  - nothing arriving from the tunnel is forwarded. A host with `ip_forward` on (e.g. for Podman) without this
     rule a peer that routes the LAN into the tunnel reaches other LAN hosts. The negative control proved it: with
     the rule removed, the test reached a LAN host's port 9999.
 - **One address everywhere:** players use the tunnel address (e.g. `10.77.0.1`) for HTTPS and game UDP. LAN players
@@ -360,7 +357,7 @@ One entry per decision: options considered, what was chosen, why. Newest last.
     `LoginToEpicProxy` and `TryEpicAutomaticLoginProxy` succeed), and the screen shows "Logged in as: DevSlayer".
   - The game is happy with **plain HTTP** to the backend, which settles the TLS question from D12: no certificate
     trust inside the game is needed. Game traffic still travels inside WireGuard (remote) or the LAN (local).
-- **Stopped at the game's own Phoenix Labs Terms of Service dialog.** Accepting a third party's terms is the owner's
+- **Stopped at the game's own Phoenix Labs Terms of Service dialog.** Accepting a third party's terms is the operator's
   decision, so automation does not click through it.
 - **Branding found and fixed:** the backend's `/dauntless-status` hard-coded "Welcome to Mystic Paradox!" on the
   login screen. It now comes from `src/statusMessage.ts` with `MYSTICPARADOX_STATUS_MESSAGE` (unset = official
@@ -452,7 +449,7 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   output is game data, never committed.
 - **Verified:** the Director's audit reports `problems=0`, with `resolvable=154/161` (7 CR19 Expedition islands are
   unsupported upstream) and 39 maps. A `ISLAND` matchmaking request for `CR19_PlayerHunt_Pursuit_Electroquill`
-  booted `dia_arid_rose` with the Electroquill, ready in 12 s locally and 6 s on the server.
+  booted `dia_arid_rose` with the Electroquill, ready in 12 s on a desktop PC and 6 s on the server.
 - **Open:** the Director has no timeout for a hunt server that no player joins; it holds a slot until restart.
 
 ## D29 — The rest of the game data: main-menu exports plus a public live-service capture (2026-11-13)
@@ -482,10 +479,10 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   (an override naming `season19` must find a path; `CURRENCY_PRESTIGE` as a prestige reward). Ours serves only
   the season ids the client enables and the real prestige rewards. On the dev stack the backend served the config
   to a real client with no warnings, and season44..50 resolve without clones. The hub was not reached: the dev
-  account stops at the game's EULA, which only the owner accepts.
+  account stops at the game's EULA, which only the account holder accepts.
 
 ## D30 — Operator account grants; cosmetic passes served (2026-11-13)
-- **Context:** the owner wants every player to start with 500 Platinum and to have every paid feature: premium
+- **Context:** the operator wants every player to start with 500 Platinum and to have every paid feature: premium
   passes, VIP and the rest. The 1.14.7 client lists 40 cosmetic passes in its season table (17 Hunt Pass vaults, 10
   event passes, 4 Reward Cache passes, plus 9 vault and duplicate rows); the backend served none of them.
 - **What exists in 1.14.7:** the binary names the VIP entitlement `ent_boost_vip` (`VIPAccessEntitlement`, with a
@@ -494,7 +491,7 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Decision:**
   - `account_grants.json` (optional, host-side game data) is applied at every launcher login in a transaction:
     the listed entitlements are granted if missing, and `starterCurrency` is credited once per account (the marker
-    entitlement `dauntless_nix_starter_<id>`). It never blocks a login and never revokes. The owner's file: the
+    entitlement `dauntless_nix_starter_<id>`). It never blocks a login and never revokes. The deployed file: the
     `season43..50_premium` gates, the 40 cosmetic pass gates, `ent_boost_vip`, `cc_premium`, and 500
     `CURRENCY_PLATINUM_UNIV` (the bucket rewards already use).
   - `progression-from-capture.py` copies a pass under its own id with its captured gate and an open window. Every
@@ -507,7 +504,7 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   `routes/system.ts` says only season43..50 are enabled) is checked in game next.
 
 ## D31 — The selected pass is saved per account (2026-11-13)
-- **Context:** in game the owner can select any pass, including the cosmetic passes (D30), but the hub reports the
+- **Context:** in game a player can select any pass, including the cosmetic passes (D30), but the hub reports the
   choice with `POST progression/huntpass/<userId>` (gameserver key). There was no such route, so it got a 404, and
   `GET /huntpass` kept naming season43. The game grants pass XP to the track that GET names, so a switch never
   took effect.
@@ -521,7 +518,7 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   GET → season43, POST season10a_vault → saved and returned by GET, a test pass → 400, no key → 401.
 
 ## D32 — MongoDB backups at every start and stop (2026-11-13)
-- **Context:** before changing anything that touches saves, the owner's MongoDB needs backups. The stack runs on
+- **Context:** before changing anything that touches saves, the server's MongoDB needs backups. The stack runs on
   demand, so a fixed-time timer would usually find it stopped.
 - **Decision:** `dauntless-mongodb-backup.service`, part of `dauntless.target`, ordered after the replica-set init
   and before the backend. Its `ExecStart` dumps at every start and its `ExecStop` dumps at every stop. Stop runs in
