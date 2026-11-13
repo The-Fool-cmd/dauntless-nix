@@ -97,6 +97,7 @@ export const TABLES: TableSpec[] = [
     },
     { name: "bountyStates" },
     { name: "cooldownStates" },
+    { name: "huntPassSelections" },
     {
         name: "inventoryTransactions",
         columns: { userId: "userId", characterId: "characterId", transactionId: "transactionId" },

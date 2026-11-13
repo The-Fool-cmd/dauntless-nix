@@ -32,6 +32,7 @@ import { AdminRepository } from "./AdminRepository";
 import { EscalationProgressRepository } from "./EscalationProgressRepository";
 import { BountyStateRepository } from "./BountyStateRepository";
 import { CooldownStateRepository } from "./CooldownStateRepository";
+import { HuntPassSelectionRepository } from "./HuntPassSelectionRepository";
 import { EntitlementRepository } from "./EntitlementRepository";
 import { EmailCodeRepository } from "./EmailCodeRepository";
 import { PartyRepository } from "./PartyRepository";
@@ -58,6 +59,7 @@ export interface RepositoryProvider {
     escalationProgress: EscalationProgressRepository;
     bountyStates: BountyStateRepository;
     cooldownStates: CooldownStateRepository;
+    huntPassSelections: HuntPassSelectionRepository;
 
     // [2026-10-14] Daily economy rollups for the monitors (diagnostics/economyLedgerMonitor.ts). Never read by a grant.
     economyRollups: EconomyRollupRepository;

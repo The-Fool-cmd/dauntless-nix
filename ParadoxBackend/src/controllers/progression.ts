@@ -153,7 +153,7 @@ export function IsApprovedXpProgressionTrack(progressionId: string): boolean {
     const ServedPass = ServedHuntPassProgressionId();
     const Approved = ApprovedXpTracks.has(progressionId)
         || (progressionId === ServedPass && HUNT_PASS_ID_PATTERN.test(ServedPass))
-        || IsCosmeticPassId(progressionId);
+        || IsSelectablePassId(progressionId);
     return Approved && TrackCurves().has(progressionId);
 }
 
@@ -166,6 +166,19 @@ export const COSMETIC_PASS_ID_PATTERN = /^(season\d{2}[a-z]?_vault|eventpass_(?!
 
 export function IsCosmeticPassId(progressionId: string): boolean {
     return COSMETIC_PASS_ID_PATTERN.test(progressionId);
+}
+
+// dauntless-nix D31: a player may level any pass the 1.14.7 client enables (season43..season50) or any cosmetic pass;
+// the hub reports the choice (POST /huntpass/:userId) and the game then grants pass XP into it.
+const SELECTABLE_SEASON_PATTERN = /^season(4[3-9]|50)$/;
+
+export function IsSelectablePassId(progressionId: string): boolean {
+    return SELECTABLE_SEASON_PATTERN.test(progressionId) || IsCosmeticPassId(progressionId);
+}
+
+/** A selectable pass that the served progression config has a rank curve for. */
+export function IsServedSelectablePass(progressionId: unknown): progressionId is string {
+    return typeof progressionId === "string" && IsSelectablePassId(progressionId) && TrackCurves().has(progressionId);
 }
 
 // [2026-10-10] Why the grant route refuses a track, for its rejection line - the hunt server itself only logs

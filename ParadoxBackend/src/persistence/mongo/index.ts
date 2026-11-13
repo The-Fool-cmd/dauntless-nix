@@ -33,6 +33,7 @@ import { MongoAdminRepository } from "./repositories/MongoAdminRepository";
 import { MongoEscalationProgressRepository } from "./repositories/MongoEscalationProgressRepository";
 import { MongoBountyStateRepository } from "./repositories/MongoBountyStateRepository";
 import { MongoCooldownStateRepository } from "./repositories/MongoCooldownStateRepository";
+import { MongoHuntPassSelectionRepository } from "./repositories/MongoHuntPassSelectionRepository";
 import { MongoEntitlementRepository } from "./repositories/MongoEntitlementRepository";
 import { MongoPartyRepository } from "./repositories/MongoPartyRepository";
 import { MongoLauncherGuardRepository } from "./repositories/MongoLauncherGuardRepository";
@@ -58,6 +59,7 @@ export function CreateMongoRepositoryProvider(): RepositoryProvider {
         escalationProgress: new MongoEscalationProgressRepository(),
         bountyStates: new MongoBountyStateRepository(),
         cooldownStates: new MongoCooldownStateRepository(),
+        huntPassSelections: new MongoHuntPassSelectionRepository(),
         economyRollups: new MongoEconomyRollupRepository(),
         activity: new MongoActivityRepository(),
         launcherAccounts: new MongoLauncherAccountRepository(),

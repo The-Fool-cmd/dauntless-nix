@@ -9,7 +9,7 @@
  * Additional terms under AGPLv3 Section 7 apply. See ADDITIONAL_TERMS.md.
  */
 
-import { Router } from "express";
+import express, { Router } from "express";
 import { logger } from "../logger";
 import { HasParadoxBackendAuth } from "../middleware/HasParadoxBackendAuth";
 import { loadGameData } from "../gameData/loader";
@@ -17,7 +17,7 @@ import { GauntletConfigPayload, GauntletGuildRewardsPayload, GauntletLeaderboard
 const progressionconfig = loadGameData<any>("progression_config.json");
 import { GetEscalationProgress, SaveEscalationProgress } from "../controllers/escalationProgress";
 import { GetEntitlementsForUser } from "../controllers/entitlements";
-import { ACTIVE_HUNTPASS_PROGRESSION_ID, IsCosmeticPassId } from "../controllers/progression";
+import { ACTIVE_HUNTPASS_PROGRESSION_ID, IsCosmeticPassId, IsServedSelectablePass } from "../controllers/progression";
 import { MonitorBountyLoad, MonitorBountySave, MonitorCooldownLoad, MonitorCooldownSave, MonitorSourceOf } from "../diagnostics/economyMonitor";
 import { CooldownSaveValidationError, IsAuthorizedCooldownReader, IsAuthorizedCooldownWriter, IsHostCooldownWriter } from "../cooldownState";
 import { GetCooldownState, SaveCooldowns, StartCooldownHandlers } from "../controllers/cooldowns";
@@ -575,40 +575,53 @@ systemRouter.get(/^\/leaderboard\/get_leaderboard\//i, HasParadoxBackendAuth, (r
     res.status(200).json(GauntletEnvelope(GauntletLeaderboardPayload()));
 });
 
-systemRouter.get("/huntpass/:userId", HasParadoxBackendAuth, (req: any, res) => {
-	// [1.14.7 2026-10-03] This was the ONLY route in the backend returning a scalar payload
-	// ("payload": "season19") while every other Phoenix response carries an object - exactly the
-	// shape that makes a client log "[LogJson][Error] Json Value of type 'String' used as a
-	// 'Object'". HuntPassComponent is also one of the six loaders that never complete on 1.14.7.
-	// The season id belongs INSIDE an object; the exact 1.14.7 field set is still being determined
-	// from the client's parser, so this returns the same empty envelope as the other stubs.
-	logger.info("Huntpass (stubbed)");
+systemRouter.get("/huntpass/:userId", HasParadoxBackendAuth, async (req: any, res) => {
+	// [1.14.7 2026-10-03] The client parses huntpass_id (FUN_141dbd260; states huntpass_preview/selected/active/purchase).
+	// The id must be a row of the HuntPassSeasonDataTable; an empty one makes the hub drop the player (bounty season
+	// dates). Default: the active pass (season43); GAMESERVER_HUNTPASS_ID overrides.
+	// dauntless-nix D31: the account's saved selection (POST below) wins when it is still a served pass.
+	const UserId = String(req.params.userId);
+	let HuntPassId = GetServedHuntPassId();
+	try {
+		const Selected = await GetRepositories().huntPassSelections.get(UserId);
+		if (IsServedSelectablePass(Selected)) HuntPassId = Selected;
+	} catch (Err: any) {
+		logger.error(`Huntpass selection read failed for ${UserId}: ${Err?.message ?? Err}`);
+	}
+	logger.info(`Huntpass ${UserId} -> huntpass_id=${HuntPassId}`);
+	res.status(200).json({ code: null, message: "OK", payload: { huntpass_id: HuntPassId, season: HuntPassId } });
+});
 
-	// [1.14.7 2026-10-03] The client parses this response with huntpass_id (verified: FUN_141dbd260
-	// reads "huntpass_id" - string 0x1454FA8B8 - alongside "main_screen" and the states
-	// huntpass_preview/selected/active/purchase). This route used to return "season" instead, so the
-	// client's season id stayed EMPTY, and the hub then logged:
-	//   [LogDataTable][Warning] UDataTable::FindRow : '' requested invalid row 'None'
-	//       from DataTable '/Game/Gameplay/hunt_pass/hunt_pass_season_table...'
-	//   [bounty_bpc] UBountyComponent::ServerInitializeBounties() - failed to get season dates for player
-	//   -> Disconnect Error Message -> LeavingMap
-	// The id must also exist as a row of the HuntPassSeasonDataTable (113 rows on 1.14.7, only season43..50
-	// enabled). The row name in the warning is the oracle for whether this id is accepted.
-	// [1.14.7 2026-10-08] Defaults to the active pass (season43) so the client, the XP grants and the
-	// prestige earn gate all name the same track; GAMESERVER_HUNTPASS_ID still overrides.
-	const HuntPassId = GetServedHuntPassId();
+// dauntless-nix D31: the hub (gameserver auth) reports the pass a player selected. The 1.14.7 body shape was not
+// captured, so the handler takes the id from the fields the GET uses (or a bare string) and logs the body it saw.
+export function SelectedPassFromBody(body: unknown): string | undefined {
+	if (typeof body === "string") return body.trim() || undefined;
+	if (body == null || typeof body !== "object") return undefined;
+	const Source: any = (body as any).payload ?? body;
+	for (const Key of ["huntpass_id", "huntPassId", "season", "progression_id", "progressionId", "selected", "track"]) {
+		if (typeof Source[Key] === "string" && Source[Key].trim()) return Source[Key].trim();
+	}
+	return undefined;
+}
 
-	logger.info(`Huntpass (stubbed) -> huntpass_id=${HuntPassId}`);
-
-	res.status(200);
-	res.json({
-        code: null,
-        message: "OK",
-        payload: {
-            huntpass_id: HuntPassId,
-            season: HuntPassId
-        }
-    });
+systemRouter.post("/huntpass/:userId", HasParadoxBackendAuth, express.json({ limit: "16kb" }), express.text({ limit: "16kb" }), async (req: any, res) => {
+	const UserId = String(req.params.userId);
+	const Actor = req.AuthData;
+	if (!(Actor?.IsGameserver === true || (typeof Actor?.userId === "string" && Actor.userId === UserId))) {
+		logger.warn(`Rejected hunt pass selection actor=${Actor?.userId ?? "unknown"} target=${UserId}`);
+		res.status(403).send();
+		return;
+	}
+	const Body = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? null);
+	const Selected = SelectedPassFromBody(req.body);
+	if (!IsServedSelectablePass(Selected)) {
+		logger.warn(`Huntpass selection for ${UserId} not understood or not a served pass (${JSON.stringify(Selected)}); body=${Body.slice(0, 400)}`);
+		res.status(400).json({ code: "errors.huntpass.invalid_selection", message: "Bad Request" });
+		return;
+	}
+	await GetRepositories().huntPassSelections.set(UserId, Selected);
+	logger.info(`Huntpass ${UserId} selected ${Selected}; body=${Body.slice(0, 200)}`);
+	res.status(200).json({ code: null, message: "OK", payload: { huntpass_id: Selected, season: Selected } });
 });
 
 // [2026-10-10] Per-account cooldowns, persisted in Mongo (src/cooldownState.ts). These were stubs: the GET answered an

@@ -43,6 +43,7 @@ import {
     SqliteEscalationProgressRepository
 } from "./repositories/SqliteVersionedStateRepositories";
 import { SqliteWalletRepository } from "./repositories/SqliteWalletRepository";
+import { SqliteHuntPassSelectionRepository } from "./repositories/SqliteHuntPassSelectionRepository";
 
 export { SqliteDatabase, SqliteSession } from "./database";
 export { SqliteUnitOfWork } from "./SqliteUnitOfWork";
@@ -69,6 +70,7 @@ export function CreateSqliteRepositoryProvider(db: SqliteDatabase): RepositoryPr
         escalationProgress: new SqliteEscalationProgressRepository(db),
         bountyStates: new SqliteBountyStateRepository(db),
         cooldownStates: new SqliteCooldownStateRepository(db),
+        huntPassSelections: new SqliteHuntPassSelectionRepository(db),
         economyRollups: new SqliteEconomyRollupRepository(db),
         activity: new SqliteActivityRepository(db),
         launcherAccounts: new SqliteLauncherAccountRepository(db),

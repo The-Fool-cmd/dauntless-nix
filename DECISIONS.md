@@ -505,3 +505,17 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Open:** the game grants pass XP only to the track `GET /huntpass` names as selected, and no capture shows how
   the client switches tracks. Whether the client lists the cosmetic passes at all (the comment in
   `routes/system.ts` says only season43..50 are enabled) is checked in game next.
+
+## D31 — The selected pass is saved per account (2026-11-13)
+- **Context:** in game the owner can select any pass, including the cosmetic passes (D30), but the hub reports the
+  choice with `POST progression/huntpass/<userId>` (gameserver key). There was no such route, so it got a 404, and
+  `GET /huntpass` kept naming season43. The game grants pass XP to the track that GET names, so a switch never
+  took effect.
+- **Decision:** a `huntPassSelections` store (Mongo and SQLite, `_id` = userId; included in account deletion).
+  `POST /huntpass/:userId` (a gameserver, or the player for themselves) saves the selection if it is a served
+  selectable pass: `season43..50` or a cosmetic pass with a curve in the config. `GET` returns the saved
+  selection while it is still served, and otherwise the default pass. The XP grant route approves the same set. The 1.14.7
+  POST body was not captured, so the handler takes the id from `huntpass_id`/`season`/`progression_id`/... or a bare
+  string; it logs the body, and answers 400 with the body in the log when it cannot read it.
+- **Verified:** tsc clean; the backend tests: 1,799 pass and the same 3 dataset failures; on the dev stack
+  GET → season43, POST season10a_vault → saved and returned by GET, a test pass → 400, no key → 401.
