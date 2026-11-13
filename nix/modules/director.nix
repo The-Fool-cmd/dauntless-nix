@@ -194,6 +194,10 @@ in
         ProtectControlGroups = true;
         LockPersonality = true;
         RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" "AF_NETLINK" ];
+      } // lib.optionalAttrs (cfg.allowedNetworks != null) {
+        # Game servers parse players' packets under Wine: keep them off the home LAN and the internet.
+        IPAddressAllow = [ "localhost" ] ++ cfg.allowedNetworks;
+        IPAddressDeny = "any";
       };
     };
 

@@ -49,6 +49,7 @@ in pkgs.testers.runNixOSTest {
       operators = [ "op" ];
       plainHttpPort = 3080;
       firewall.interfaces = [ "eth2" ];
+      allowedNetworks = [ "10.77.0.0/24" "192.168.2.0/24" ];   # the tunnel and the home LAN, not the internet
       runtime = fakeRuntime;
       approvedExecutableSha256 = fakeExeSha256;
       director = {
@@ -60,6 +61,7 @@ in pkgs.testers.runNixOSTest {
       wireguard = {
         enable = true;
         privateKeyFile = "${wgKeys}/server.key";
+        firewallInterfaces = [ "eth1" ];   # where the router forwards it
         peers = [ { name = "remote"; publicKey = pub "remote"; address = "10.77.0.2/32"; } ];
       };
     };
@@ -121,7 +123,7 @@ in pkgs.testers.runNixOSTest {
     environment.systemPackages = [ pkgs.curl pkgs.netcat-openbsd pkgs.jq ];
   };
 
-  testScript = { nodes, ... }: let serverLan = serverLanIp nodes; lanHost = ipOn 1 nodes.lan; in ''
+  testScript = { nodes, ... }: let serverLan = serverLanIp nodes; lanHost = ipOn 1 nodes.lan; remoteInet = ipOn 1 nodes.remote; in ''
     import json
     start_all()
 
@@ -149,6 +151,18 @@ in pkgs.testers.runNixOSTest {
         server.wait_until_succeeds("journalctl -u dauntless-director -b | grep -q 'ready on ${wgServerIp}:8789'", timeout=180)
         # Bound to the public address, so LAN players routed to it get replies from it (not from the LAN address).
         server.succeed("pgrep -af stub-gameserver | grep -q -- '-MULTIHOME=${wgServerIp}'")
+
+    with subtest("Director and game servers reach only localhost and allowedNetworks"):
+        cg = "/sys/fs/cgroup/system.slice/dauntless-director.service/cgroup.procs"
+        inside = lambda cmd: f"sh -c 'echo $$ > {cg} && exec {cmd}'"
+        server.succeed("ping -c1 -W2 ${remoteInet}")            # the internet side answers ping...
+        server.fail(inside("ping -c1 -W2 ${remoteInet}"))       # ...but not from the Director's cgroup
+        server.succeed(inside("ping -c1 -W2 ${lanHost}"))       # allowed network
+        server.succeed(inside("curl -sf http://127.0.0.1:3000/"))
+
+    with subtest("WireGuard port only on the forwarded interface"):
+        server.succeed("iptables -S nixos-fw | grep -- '--dport 51821' | grep -q -- '-i eth1'")
+        server.fail("iptables -S nixos-fw | grep -- '--dport 51821' | grep -v -- '-i eth1' | grep -q .")
 
     with subtest("Director API is loopback-only"):
         server.succeed("ss -ltnH 'sport = :3011' | grep -q '127.0.0.1:3011'")

@@ -3,7 +3,8 @@
 # Remote players get exactly the game: HTTPS/pong (80, 443) and the game UDP range on the server's tunnel address.
 # A guard rule placed before the NixOS firewall's own accepts drops everything else arriving on this interface,
 # so ports the host opens globally or on other interfaces are NOT reachable through the tunnel.
-# The only public exposure is listenPort/udp (forward it on the router; that step is the operator's).
+# The only public exposure is listenPort/udp (forward it on the router; that step is the operator's); firewallInterfaces
+# limits it to the interface the router forwards to.
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.dauntless-nix;
@@ -24,6 +25,12 @@ in
       description = "Server address on the tunnel (CIDR). Use its IP as publicHost / director.publicAddress.";
     };
     listenPort = mkOption { type = types.port; default = 51821; };
+    firewallInterfaces = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "enp10s0" ];
+      description = "Interfaces to open listenPort/udp on (the one the router forwards to). Empty = all interfaces.";
+    };
     privateKeyFile = mkOption {
       type = types.str;
       default = "${cfg.stateDir}/secrets/wireguard.key";
@@ -52,11 +59,13 @@ in
     };
 
     networking.firewall = {
-      allowedUDPPorts = [ wcfg.listenPort ];
-      interfaces.${iface} = {
-        allowedTCPPorts = [ 80 443 ] ++ lib.optional (cfg.plainHttpPort != null) cfg.plainHttpPort;
-        allowedUDPPortRanges = lib.optional cfg.director.enable { inherit (cfg.director.portRange) from to; };
-      };
+      allowedUDPPorts = lib.optional (wcfg.firewallInterfaces == [ ]) wcfg.listenPort;
+      interfaces = {
+        ${iface} = {
+          allowedTCPPorts = [ 80 443 ] ++ lib.optional (cfg.plainHttpPort != null) cfg.plainHttpPort;
+          allowedUDPPortRanges = lib.optional cfg.director.enable { inherit (cfg.director.portRange) from to; };
+        };
+      } // lib.genAttrs wcfg.firewallInterfaces (_: { allowedUDPPorts = [ wcfg.listenPort ]; });
     }
     # Guard: on the tunnel, anything not listed is refused even if the host opens it elsewhere, and nothing from the
     # tunnel is ever forwarded (hosts running containers usually have ip_forward on): peers cannot reach the LAN.
