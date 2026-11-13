@@ -45,6 +45,9 @@ in pkgs.testers.runNixOSTest {
       enable = true;
       publicHost = host;
       syntheticGameData = true;
+      autoStart = false;                  # like the server: only `dauntless up` starts it
+      operators = [ "op" ];
+      plainHttpPort = 3080;
       firewall.interfaces = [ "eth2" ];
       runtime = fakeRuntime;
       approvedExecutableSha256 = fakeExeSha256;
@@ -60,6 +63,7 @@ in pkgs.testers.runNixOSTest {
         peers = [ { name = "remote"; publicKey = pub "remote"; address = "10.77.0.2/32"; } ];
       };
     };
+    users.users.op = { isNormalUser = true; };
     # Something else the host serves on its LAN (like Open WebUI/Kuma on the server): must stay off the tunnel.
     networking.firewall.interfaces.eth2.allowedTCPPorts = [ 8080 ];
     systemd.services.other-lan-service = {
@@ -121,6 +125,12 @@ in pkgs.testers.runNixOSTest {
     import json
     start_all()
 
+    with subtest("Nothing starts at boot; an operator brings it up without sudo"):
+        server.wait_for_unit("multi-user.target")
+        server.fail("systemctl is-active dauntless-backend.service podman-dauntless-mongodb.service")
+        server.fail("su - op -c 'systemctl stop nginx.service'")          # polkit grants dauntless units only
+        server.succeed("su - op -c 'dauntless up' >&2", timeout=600)
+
     server.wait_for_unit("dauntless-mongodb-rs-init.service", timeout=300)
     server.wait_for_unit("dauntless-backend.service")
     server.wait_until_succeeds("curl -sf http://127.0.0.1:3000/", timeout=120)
@@ -150,6 +160,26 @@ in pkgs.testers.runNixOSTest {
         remote.wait_until_succeeds("curl -skf https://${host}/launcher/v1/status", timeout=60)
         body = remote.succeed("curl -s http://${host}/x")
         assert "pong" in body, body
+
+    with subtest("Plain-HTTP backend port on the LAN and the tunnel"):
+        for node in (lan, remote):
+            status = json.loads(node.succeed("curl -sf http://${host}:3080/launcher/v1/status"))
+            assert str(status.get("supportedBuildChangelist")) == "647472", status
+
+    with subtest("Operator switches the Hunt Pass season at run time"):
+        def assert_season(want):
+            # Read the running backend's environment (just after a restart the new process may not have exec'd yet).
+            server.wait_until_succeeds("tr '\\0' '\\n' < /proc/$(systemctl show -P MainPID dauntless-backend.service)/environ"
+                                       f" | grep -qx GAMESERVER_HUNTPASS_ID={want}", timeout=60)
+        assert_season("season43")
+        server.fail("su - op -c 'dauntless season season99'")
+        server.succeed("su - op -c 'dauntless season season44' >&2")
+        assert_season("season44")
+        assert "season44" in server.succeed("su - op -c 'dauntless status'")
+        server.succeed("su - op -c 'dauntless season default' >&2")
+        assert_season("season43")
+        server.wait_until_succeeds("curl -sf http://127.0.0.1:3000/", timeout=120)
+        server.wait_for_unit("dauntless-director.service")
 
     with subtest("Remote player over WireGuard: nothing else, even ports open on the LAN"):
         for port in (8080, 22, 3000, 3011, 27017):
@@ -211,6 +241,10 @@ in pkgs.testers.runNixOSTest {
     with subtest("Stopping the Director stops its game servers"):
         server.succeed("systemctl stop dauntless-director.service")
         server.fail("pgrep -f stub-gameserver")
+
+    with subtest("dauntless down stops everything"):
+        server.succeed("su - op -c 'dauntless down' >&2")
+        server.fail("systemctl is-active dauntless-backend.service dauntless-director.service podman-dauntless-mongodb.service")
 
     with subtest("no startup errors in the backend log"):
         server.fail("journalctl -u dauntless-backend.service -b --no-pager | grep -E 'ERROR|Fatal'")

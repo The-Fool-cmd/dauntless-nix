@@ -11,6 +11,7 @@ let
   inherit (lib) mkOption mkEnableOption mkIf types;
   iface = wcfg.interface;
   udpRange = "${toString cfg.director.portRange.from}:${toString cfg.director.portRange.to}";
+  tcpPorts = lib.concatMapStringsSep "," toString ([ 80 443 ] ++ lib.optional (cfg.plainHttpPort != null) cfg.plainHttpPort);
   nftUdpRange = "${toString cfg.director.portRange.from}-${toString cfg.director.portRange.to}";
 in
 {
@@ -53,7 +54,7 @@ in
     networking.firewall = {
       allowedUDPPorts = [ wcfg.listenPort ];
       interfaces.${iface} = {
-        allowedTCPPorts = [ 80 443 ];
+        allowedTCPPorts = [ 80 443 ] ++ lib.optional (cfg.plainHttpPort != null) cfg.plainHttpPort;
         allowedUDPPortRanges = lib.optional cfg.director.enable { inherit (cfg.director.portRange) from to; };
       };
     }
@@ -61,7 +62,7 @@ in
     # tunnel is ever forwarded (hosts running containers usually have ip_forward on): peers cannot reach the LAN.
     // (if config.networking.nftables.enable then {
       extraInputRules = ''
-        iifname "${iface}" tcp dport { 80, 443 } accept
+        iifname "${iface}" tcp dport { ${lib.replaceStrings [","] [", "] tcpPorts} } accept
         ${lib.optionalString cfg.director.enable ''iifname "${iface}" udp dport ${nftUdpRange} accept''}
         iifname "${iface}" drop
       '';
@@ -69,7 +70,7 @@ in
       extraCommands = ''
         for ipt in iptables ip6tables; do
           $ipt -N dauntless-wg-guard 2>/dev/null || $ipt -F dauntless-wg-guard
-          $ipt -A dauntless-wg-guard -p tcp -m multiport --dports 80,443 -j RETURN
+          $ipt -A dauntless-wg-guard -p tcp -m multiport --dports ${tcpPorts} -j RETURN
           ${lib.optionalString cfg.director.enable ''$ipt -A dauntless-wg-guard -p udp --dport ${udpRange} -j RETURN''}
           $ipt -A dauntless-wg-guard -j nixos-fw-refuse
           $ipt -D nixos-fw -i ${iface} -j dauntless-wg-guard 2>/dev/null || true

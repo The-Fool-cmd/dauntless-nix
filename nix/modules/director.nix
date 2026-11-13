@@ -123,6 +123,7 @@ in
     # Secrets + game instance. Runs as root: it reads the backend's secret file and may hard-link a root-owned install.
     systemd.services.dauntless-director-setup = {
       description = "dauntless-nix: Director secret and game-server instance";
+      partOf = [ "dauntless.target" ];
       after = [ "dauntless-nix-init.service" "systemd-tmpfiles-setup.service" ];
       requires = [ "dauntless-nix-init.service" ];
       path = [ pkgs.coreutils pkgs.gnugrep ];
@@ -164,7 +165,8 @@ in
 
     systemd.services.dauntless-director = {
       description = "dauntless-nix Director (ParadoxDirector) and its game servers";
-      wantedBy = [ "multi-user.target" ];
+      wantedBy = [ "dauntless.target" ];
+      partOf = [ "dauntless.target" ];
       after = [ "network.target" "dauntless-director-setup.service" "dauntless-backend.service" ];
       requires = [ "dauntless-director-setup.service" ];
       environment = directorEnv;
