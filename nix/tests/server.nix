@@ -45,7 +45,7 @@ in pkgs.testers.runNixOSTest {
       enable = true;
       publicHost = host;
       syntheticGameData = true;
-      autoStart = false;                  # like the server: only `dauntless up` starts it
+      autoStart = false;                  # only `dauntless up` starts it
       operators = [ "op" ];
       plainHttpPort = 3080;
       firewall.interfaces = [ "eth2" ];
@@ -53,7 +53,7 @@ in pkgs.testers.runNixOSTest {
       approvedExecutableSha256 = fakeExeSha256;
       director = {
         enable = true;
-        port = 3011;                      # 3001 is taken on the real server (Uptime Kuma)
+        port = 3011;                      # exercises the override (3001 may be taken)
         publicAddress = wgServerIp;
         gameserverBinary = "${stubGameServer}";
       };
@@ -64,7 +64,7 @@ in pkgs.testers.runNixOSTest {
       };
     };
     users.users.op = { isNormalUser = true; };
-    # Something else the host serves on its LAN (like Open WebUI/Kuma on the server): must stay off the tunnel.
+    # Something else the host serves on its LAN (another web service): must stay off the tunnel.
     networking.firewall.interfaces.eth2.allowedTCPPorts = [ 8080 ];
     systemd.services.other-lan-service = {
       wantedBy = [ "multi-user.target" ];

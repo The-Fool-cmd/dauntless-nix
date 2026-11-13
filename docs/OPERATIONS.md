@@ -1,5 +1,14 @@
 # Operations (dauntless-nix)
 
+Day-to-day tasks for the operator of a server running `nixosModules.server`. Players follow
+[LINUX_PLAYER.md](LINUX_PLAYER.md).
+
+## Commands
+
+Over SSH on the server: `dauntless up` (start), `down`, `restart`, `status`, `logs [-f]` (`LINES_BACK=n` for more
+lines; extra arguments go to `journalctl`, e.g. `--since today`), and `season [ID|default]` (the default Hunt Pass).
+It starts at boot unless `services.dauntless-nix.autoStart = false` (then only `dauntless up` starts it).
+
 ## Backups (D32)
 
 `services.dauntless-nix.backup` (on by default) dumps MongoDB with `mongodump --archive --gzip`:
@@ -40,3 +49,15 @@ sudo podman exec -e E='player@example.com' -e H="$H" dauntless-mongodb mongosh -
 ```
 
 `matchedCount: 1` means it was set (the email is stored in lower case). The player signs in with the new password.
+
+## Crediting a player (D35)
+
+Add an entry to `credits` in `account_grants.json` in the server's game-data directory (no root needed):
+
+```json
+"credits": [{ "id": "credit_1", "userId": "<account uuid>", "currency": { "CURRENCY_PLATINUM_UNIV": 150 } }]
+```
+
+It is paid once, at that player's next launcher login after a `dauntless restart`; the log shows
+`[AccountGrants] <user> credit <id>`. Keep the entry: its id is what stops a second payment. Use a new id for a new
+credit.

@@ -54,6 +54,11 @@ test("tracks: max-guards never regress a value, spend never goes negative", asyn
     assert.equal(Ranked.confirmedFremiumRank, 4);
     assert.equal(Ranked.progress, 0, "a rank confirm before any grant creates the row at 0");
     assert.equal((await repos.progressionTracks.setConfirmedFremiumRank("u1", "Rank_B", 2)).confirmedFremiumRank, 4);
+    const Premium = await repos.progressionTracks.setConfirmedPremiumRank("u1", "Rank_B", 3);
+    assert.equal(Premium.confirmedPremiumRank, 3, "the premium claim is recorded on its own field");
+    assert.equal(Premium.confirmedFremiumRank, 4, "and leaves the free claim alone");
+    assert.equal((await repos.progressionTracks.setConfirmedPremiumRank("u1", "Rank_B", 1)).confirmedPremiumRank, 3);
+    assert.equal((await repos.progressionTracks.setConfirmedPremiumRank("u1", "Rank_C", 2)).confirmedFremiumRank, 0, "a new row starts the free claim at 0");
 
     await repos.progressionTracks.increment("u1", "Banked", 100);
     assert.equal((await repos.progressionTracks.spend("u1", "Banked", 60))?.progress, 40);

@@ -79,6 +79,8 @@ Applied at every launcher login (`src/accountGrants.ts`), idempotently; an inval
 - `entitlements`: every account holds these; missing ones are granted at login and nothing is revoked.
 - `starterCurrency`: credited once per account, recorded by the entitlement `dauntless_nix_starter_<starterGrantId>`
   in the same transaction. A new `starterGrantId` credits every account once more.
+- `credits` (D35): `[{ "id": "credit_1", "userId": "<account uuid>", "currency": { "CURRENCY_PLATINUM_UNIV": 150 } }]`,
+  each credited once to that one account at its next login (entitlement `dauntless_nix_credit_<id>`).
 
 ## Tester max kit (`tester_max_kit.json`, optional, hand-written)
 

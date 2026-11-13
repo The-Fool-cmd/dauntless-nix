@@ -18,7 +18,7 @@ import { GauntletConfigPayload, GauntletGuildRewardsPayload, GauntletLeaderboard
 const progressionconfig = loadGameData<any>("progression_config.json");
 import { GetEscalationProgress, SaveEscalationProgress } from "../controllers/escalationProgress";
 import { GetEntitlementsForUser } from "../controllers/entitlements";
-import { ACTIVE_HUNTPASS_PROGRESSION_ID, IsCosmeticPassId, IsServedSelectablePass } from "../controllers/progression";
+import { ACTIVE_HUNTPASS_PROGRESSION_ID, IsCosmeticPassId, IsServedSelectablePass, SelectedHuntPassFor } from "../controllers/progression";
 import { MonitorBountyLoad, MonitorBountySave, MonitorCooldownLoad, MonitorCooldownSave, MonitorSourceOf } from "../diagnostics/economyMonitor";
 import { CooldownSaveValidationError, IsAuthorizedCooldownReader, IsAuthorizedCooldownWriter, IsHostCooldownWriter } from "../cooldownState";
 import { GetCooldownState, SaveCooldowns, StartCooldownHandlers } from "../controllers/cooldowns";
@@ -595,13 +595,7 @@ systemRouter.get("/huntpass/:userId", HasParadoxBackendAuth, async (req: any, re
 	// dates). Default: the active pass (season43); GAMESERVER_HUNTPASS_ID overrides.
 	// dauntless-nix D31: the account's saved selection (POST below) wins when it is still a served pass.
 	const UserId = String(req.params.userId);
-	let HuntPassId = GetServedHuntPassId();
-	try {
-		const Selected = await GetRepositories().huntPassSelections.get(UserId);
-		if (IsServedSelectablePass(Selected)) HuntPassId = Selected;
-	} catch (Err: any) {
-		logger.error(`Huntpass selection read failed for ${UserId}: ${Err?.message ?? Err}`);
-	}
+	const HuntPassId = await SelectedHuntPassFor(UserId);
 	logger.info(`Huntpass ${UserId} -> huntpass_id=${HuntPassId}`);
 	res.status(200).json({ code: null, message: "OK", payload: { huntpass_id: HuntPassId, season: HuntPassId } });
 });

@@ -2,6 +2,12 @@
 > **This is `dauntless-nix`, a modified fork** of [Mystic Paradox](https://github.com/pranav158/Mystic-Paradox) that
 > adds Linux/NixOS hosting and a Proton client path. It is not an official Mystic Paradox release and is not endorsed
 > by its maintainers. See [NOTICE.md](NOTICE.md), [DECISIONS.md](DECISIONS.md) and [STATUS.md](STATUS.md).
+>
+> - **Joining a dauntless-nix server from Linux?** Follow [docs/LINUX_PLAYER.md](docs/LINUX_PLAYER.md).
+> - **Running the server:** the NixOS module is `nixosModules.server` (`nix/modules/server.nix`); day-to-day tasks
+>   are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+>
+> The rest of this README is the upstream Mystic Paradox one.
 
 <p align="center">
   <img src="docs/assets/banner.webp" alt="Mystic Paradox — open-source Dauntless server project" width="100%">

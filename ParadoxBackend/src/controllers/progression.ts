@@ -82,9 +82,21 @@ export function GetTrackCurve(progressionId: string) {
 export const ACTIVE_HUNTPASS_PROGRESSION_ID = "season43";
 export const SELECTED_HUNTPASS_TRACK_ALIAS = "selected_huntpass";
 
-export function ResolveProgressionTrackId(progressionId: string): string | undefined {
-    if (progressionId === SELECTED_HUNTPASS_TRACK_ALIAS) return ACTIVE_HUNTPASS_PROGRESSION_ID;
+export function ResolveProgressionTrackId(progressionId: string, selectedPass: string = ACTIVE_HUNTPASS_PROGRESSION_ID): string | undefined {
+    if (progressionId === SELECTED_HUNTPASS_TRACK_ALIAS) return selectedPass;
     return TrackCurves().has(progressionId) ? progressionId : undefined;
+}
+
+// dauntless-nix D31/D35: the pass GET /huntpass names for this account: its saved selection while that is still served,
+// otherwise the served default. `selected_huntpass` (rank skips, the hub's refresh after a purchase) means this pass.
+export async function SelectedHuntPassFor(userId: string): Promise<string> {
+    try {
+        const Selected = await GetRepositories().huntPassSelections.get(userId);
+        if (IsServedSelectablePass(Selected)) return Selected;
+    } catch (Err: any) {
+        logger.error(`Huntpass selection read failed for ${userId}: ${Err?.message ?? Err}`);
+    }
+    return ServedHuntPassProgressionId();
 }
 
 // [2026-10-10] The pass GET /huntpass serves. Same expression as routes/system.ts GetServedHuntPassId (system.ts imports
@@ -681,6 +693,8 @@ export interface ConfirmRankOptions {
      * the confirm goes through, logged as [MasteryMon] SYNC. A larger gap stays refused. Any other track is unchanged.
      */
     boundedMasterySync?: boolean;
+    /** dauntless-nix: which claim the confirm records; "premium" is the Elite track (POST .../confirm/premium). */
+    tier?: "fremium" | "premium";
 }
 
 export async function ConfirmPublicProgressionRank(userId: string, progressionId: string, rank: number, options: ConfirmRankOptions = {}): Promise<ConfirmRankResult> {
@@ -714,7 +728,9 @@ export async function ConfirmPublicProgressionRank(userId: string, progressionId
         }
     }
 
-    const Record = await GetRepositories().progressionTracks.setConfirmedFremiumRank(userId, progressionId, rank);
+    const Record = options.tier === "premium"
+        ? await GetRepositories().progressionTracks.setConfirmedPremiumRank(userId, progressionId, rank)
+        : await GetRepositories().progressionTracks.setConfirmedFremiumRank(userId, progressionId, rank);
     return { ok: true, record: Record };
 }
 
