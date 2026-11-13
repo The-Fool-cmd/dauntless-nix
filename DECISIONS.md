@@ -564,3 +564,13 @@ One entry per decision: options considered, what was chosen, why. Newest last.
     next launcher login (marker entitlement `dauntless_nix_credit_<id>`).
 - **Verified:** backend build and tests pass (1,617, 0 failures), including new tests for the premium claim and
   credit parsing.
+
+## D36 — Controllers: SDL2 in the client's steam-run sandbox (2026-11-13)
+- **Problem:** the game reads controllers through XInput only. Wine's winebus turns a pad into an XInput device when
+  SDL2 recognises it as a game controller, but plain `steam-run` ships no `libSDL2`, so pads that the kernel drives
+  as generic HID (e.g. a GameSir G7 Pro in HID mode) never reached the game. Steam Input does not help either: it
+  applies only to games that Steam itself starts.
+- **Chosen:** `nix/pkgs/proton-run.nix` uses `(steam.override { extraLibraries = p: [ p.SDL2 ]; }).run`
+  (sdl2-compat, 32- and 64-bit). Servers keep plain `steam-run`.
+- **Verified:** `libSDL2-2.0.so.0` is present in the new sandbox, and that SDL2 reports the HID-mode GameSir as a game
+  controller (`SDL_IsGameController` = 1). In-game check pending.

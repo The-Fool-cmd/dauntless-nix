@@ -1,8 +1,12 @@
 # Runs a Windows executable under the flake-pinned GE-Proton, outside Steam.
 # Usage: dauntless-proton <prefix-dir> <exe> [args...]
 # umu-launcher was rejected: it downloads the Steam Runtime at run time (unpinned). See DECISIONS.md.
-{ writeShellApplication, steam-run, proton-ge-bin }:
-let proton = proton-ge-bin.steamcompattool;
+{ writeShellApplication, steam, proton-ge-bin }:
+let
+  proton = proton-ge-bin.steamcompattool;
+  # Wine's winebus only presents a controller to the game as an XInput pad when it can load SDL2
+  # (D36); plain steam-run lacks it, so non-Xbox pads (e.g. HID-mode GameSir) were invisible.
+  steam-run = (steam.override { extraLibraries = pkgs: [ pkgs.SDL2 ]; }).run;
 in writeShellApplication {
   name = "dauntless-proton";
   runtimeInputs = [ steam-run ];
