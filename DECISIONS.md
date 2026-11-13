@@ -343,3 +343,28 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   clients with upstream's own flag files.
 - **Why:** ADDITIONAL_TERMS §2–4. A modified build must not look like, or be presented as, an official Mystic
   Paradox release or service.
+
+## D23 — Real-client verification on Linux, off-screen; game traffic over plain HTTP (2026-11-13)
+- **Local stack:** `nix run .#local-stack -- up|down|status|launcher-config` runs the whole server as unprivileged
+  user processes on 127.0.0.1: MongoDB 8 as a single-node replica set, the backend, the signed runtime feed, and the
+  Director with **real** Wine game servers. It is for development; production is `nixosModules.server`.
+  `mongodb-ce` is allowed as unfree for this app only.
+- **Off-screen client:** the real 1.14.7 client runs under `gamescope --backend headless`: GPU rendering with no
+  window on the desktop. `gamescopectl screenshot` captures frames, and `xdotool` on gamescope's Xwayland sends
+  input.
+- **Verified on a desktop PC:**
+  - The Director starts Ramsgate and the Training Grounds under Wine, ready in about 12 s each. The game servers
+    use `[BackendAddress] source=env api=http://127.0.0.1:3000`.
+  - The launcher registers, logs in, syncs the signed runtime and gets an exchange code. The game logs in with it
+    through the runtime's redirect (`oauth/token → 200`, "Logging in a user via a launcher exchange code";
+    `LoginToEpicProxy` and `TryEpicAutomaticLoginProxy` succeed), and the screen shows "Logged in as: DevSlayer".
+  - The game is happy with **plain HTTP** to the backend, which settles the TLS question from D12: no certificate
+    trust inside the game is needed. Game traffic still travels inside WireGuard (remote) or the LAN (local).
+- **Stopped at the game's own Phoenix Labs Terms of Service dialog.** Accepting a third party's terms is the owner's
+  decision, so automation does not click through it.
+- **Branding found and fixed:** the backend's `/dauntless-status` hard-coded "Welcome to Mystic Paradox!" on the
+  login screen. It now comes from `src/statusMessage.ts` with `MYSTICPARADOX_STATUS_MESSAGE` (unset = official
+  text, `off` hides it; upstream-friendly). The module sets `services.dauntless-nix.statusMessage` (default
+  "Private server (dauntless-nix)"). Covered by a unit test and the VM test.
+- **Upstream test suites now run in every package build:** backend 1,681 tests (1,611 pass, 0 fail, 70 skipped
+  that need real game data); Director 35/35.

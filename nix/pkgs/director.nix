@@ -23,6 +23,12 @@ buildNpmPackage {
   nodejs = nodejs_22;
   npmDepsHash = "sha256-dmYyKtZLtTKFuCZaXTZadRpyu9RUBLv1ZiSbstYirSw=";
   npmBuildScript = "build";
+  doCheck = true;   # upstream's unit tests (game-data tests skip themselves without real data)
+  checkPhase = ''
+    runHook preCheck
+    npm test
+    runHook postCheck
+  '';
 
   installPhase = ''
     runHook preInstall

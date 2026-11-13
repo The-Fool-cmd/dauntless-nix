@@ -8,9 +8,9 @@ servers at run time. Phases are listed in order; each one gates the next.
 | 0. Feasibility: 1.14.7 client under Proton | ✅ Done 2026-11-12 |
 | 1. Backend + MongoDB + TLS on NixOS | ✅ Done in VM test 2026-11-13; deploy to the server with phase 5 |
 | 2. Game-server topology (Director+Wine vs realms+coturn) | ✅ Decided 2026-11-13: dedicated hubs/hunts under Wine (D17) |
-| 3. Linux client path (launcher) | ⏭ Next |
-| 4. Runtime DLLs without Windows | ✅ Builds (D13, D14, D16); in-game client test pending |
-| 5. End to end, two players over the internet | Not started |
+| 3. Linux client path (launcher) | ✅ Minimal launcher (D21); real client logs in off-screen (D23) |
+| 4. Runtime DLLs without Windows | ✅ Built in Nix (D13–D16); loaded by real client and servers |
+| 5. End to end, two players over the internet | ⏭ Next: real game data, deploy to the server, play-test |
 | 6. Package and harden | Not started |
 
 ## What works
@@ -37,6 +37,13 @@ servers at run time. Phases are listed in order; each one gates the next.
   - A headless Ramsgate or Training Grounds server under Wine prints `MYSTICPARADOX_GAMESERVER_READY`.
   - `dauntless-gameserver` (the Director's `GAMESERVER_BINARY_PATH`) has a ready → SIGTERM → clean-exit cycle.
 
+- Phase 3 (D21–D23):
+  - `nixosModules.client` with `dauntless-nix-launcher`; the signed runtime feed on the server.
+  - The VM test covers register, login, signed sync, exchange code and bad-signature refusal over WireGuard.
+  - On real hardware: the 1.14.7 client logs in to our backend off-screen and shows "Logged in as".
+- Director and WireGuard modules (D20): game ports only through the tunnel, no forwarding into the LAN
+  (negative-controlled), Director API on loopback.
+
 ## Doesn't work / not yet checked
 - Only about 48 s of runtime so far; no long soak.
 - The shipping build writes no Unreal log (`Archon.log` holds only open/close lines). Diagnosis will rely on the
@@ -54,8 +61,10 @@ servers at run time. Phases are listed in order; each one gates the next.
   still to do.
 
 ## Next
-1. Director packaging and NixOS module (systemd, per-port prefixes under the state dir, the game copy on the server).
-2. Phase 3: the client path. Sign-in and session exchange against our backend, then start the game under Proton
-   with `winmm=n,b` and `MYSTICPARADOX_BACKEND_URL`. Decide on porting the launcher vs a minimal Linux launcher.
-3. Phase 1 follow-up: the WireGuard interface for the remote player (D12).
-4. Real game data. CatalogExporter can now be built with the same toolchain and injected the same way.
+1. Real game data (D19). Build CatalogExporter with the D14 toolchain and compare upstream's ProgressionExporter
+   with dauntless-revamped's. The XP tracks export at the front end; hunts, store and Slayer's Path need Ramsgate.
+2. Deploy to the server (needs the owner): the game copy on the server, the SDK in its store, the host config,
+   the WireGuard port forward, and the remote player's peer key.
+3. Play-test with the owner (accepting the game's own EULA in the client, Ramsgate, party, hunt), then check that
+   progression survives a restart.
+4. Phase 6: MongoDB backups, operator README.

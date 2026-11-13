@@ -71,6 +71,8 @@ let
     MYSTICPARADOX_CONSENT_REQUIRED = "off";
     MYSTICPARADOX_CONSENT_ENFORCE = "off";
     MYSTICPARADOX_EMAIL_VERIFICATION = "off";    # no SMTP; accounts are created by the operator's own players
+    # Login-screen status line: never the official "Welcome to Mystic Paradox!" on this server (ADDITIONAL_TERMS 2-4).
+    MYSTICPARADOX_STATUS_MESSAGE = cfg.statusMessage;
     LOG_LEVEL = "info";
   } // cfg.backend.extraEnvironment;
 
@@ -105,6 +107,12 @@ in
       type = types.str;
       default = "f3f95fbf22709ef077a11632ed95d675b7209b7e0172d9ecb9ba7d02a1fbb66b";
       description = "SHA-256 of the only accepted Dauntless-Win64-Shipping.exe (1.14.7, CL 647472).";
+    };
+
+    statusMessage = mkOption {
+      type = types.str;
+      default = "Private server (dauntless-nix)";
+      description = "Status line on the game's login screen; \"off\" hides it.";
     };
 
     syntheticGameData = mkOption {

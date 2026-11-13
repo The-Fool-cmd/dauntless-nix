@@ -163,6 +163,10 @@ in pkgs.testers.runNixOSTest {
     with subtest("Remote player cannot reach the server at all outside the tunnel"):
         remote.fail("nc -z -w 3 ${serverInetIp nodes} 443")
 
+    with subtest("Login-screen status line is ours, never the official Mystic Paradox text"):
+        st = json.loads(remote.succeed("curl -skf https://${host}/dauntless-status"))
+        assert st["en"] == "Private server (dauntless-nix)", st
+
     with subtest("Server signed and published the runtime feed"):
         server.wait_for_unit("dauntless-runtime-publish.service")
         key = server.succeed("cat /var/lib/dauntless-nix/updates/runtime-public-key.b64").strip()
