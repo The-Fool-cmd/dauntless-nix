@@ -11,7 +11,7 @@
 
       # Unfree pieces, each allowed by name: the Steam FHS runtime that hosts Proton, Microsoft's SDK (separately gated
       # by its own license switch below), and Dumper-7 (no upstream license: build locally, never redistribute).
-      unfreeAllowed = [ "steam" "steam-run" "steam-unwrapped" "win-sdk" "xwin-fetch-msvc" "dumper7" ];
+      unfreeAllowed = [ "steam" "steam-run" "steam-unwrapped" "win-sdk" "xwin-fetch-msvc" "dumper7" "mongodb-ce" ];  # mongodb-ce: dev stack only
 
       # Microsoft's license for the MSVC CRT/Windows SDK download must be accepted by whoever builds, never inherited
       # from this repo. Modules pass it explicitly; CLI builds opt in per command:
@@ -43,6 +43,10 @@
         backend = pkgs.callPackage ./nix/pkgs/backend.nix { };
         runtime-loader = pkgs.callPackage ./nix/pkgs/runtime-loader.nix { };
         director = pkgs.callPackage ./nix/pkgs/director.nix { };
+        launcher = pkgs.callPackage ./nix/pkgs/launcher.nix { };
+        local-stack = pkgs.callPackage ./nix/pkgs/local-stack.nix {
+          inherit (self.packages.${system}) backend director gameserver-wine proton-run;
+        };
         gameserver-wine = pkgs.callPackage ./nix/pkgs/gameserver-wine.nix { };
         proton-run = pkgs.callPackage ./nix/pkgs/proton-run.nix { };
         default = self.packages.${system}.legendary;
@@ -57,6 +61,15 @@
         services.dauntless-nix.director.package = lib.mkDefault self.packages.${system}.director;
         services.dauntless-nix.director.gameserverBinary =
           lib.mkDefault (lib.getExe self.packages.${system}.gameserver-wine);
+      };
+
+      nixosModules.client = { lib, ... }: {
+        imports = [ ./nix/modules/client.nix ];
+        services.dauntless-nix-client = {
+          launcherPackage = lib.mkDefault self.packages.${system}.launcher;
+          protonRunPackage = lib.mkDefault self.packages.${system}.proton-run;
+          legendaryPackage = lib.mkDefault self.packages.${system}.legendary;
+        };
       };
 
       checks.${system}.server = import ./nix/tests/server.nix { inherit self pkgs; };

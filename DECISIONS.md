@@ -300,3 +300,71 @@ One entry per decision: options considered, what was chosen, why. Newest last.
     service through the server's LAN IP or another LAN host, nor anything outside the tunnel;
   - stopping the Director kills its servers;
   - the secrets files are `0600`.
+
+## D21 — Linux client: a minimal launcher of our own (2026-11-13)
+- **Options:**
+  1. Port the Tauri launcher: about 29k lines of Rust with heavy Win32 use (job objects, WinTrust, secure store,
+     process reparenting) plus realm hosting.
+  2. Run the Tauri launcher under Wine: needs WebView2 under Wine; fragile.
+  3. A minimal Linux launcher that speaks the same protocol.
+- **Chosen:** option 3, `tools/linux-launcher/launcher.mjs`: one Node file, stdlib only, packaged as `.#launcher`
+  (`dauntless-nix-launcher`). It handles `register`, `login`, `logout`, `status`, `sync` and `play [--dry-run]`:
+  - **Auth:** `/launcher/v1/auth/{register,login,refresh}`. The refresh token is stored in
+    `$XDG_STATE_HOME/dauntless-nix/session.json` (`0600`). The server's TLS certificate can be pinned
+    (`caCertFile`).
+  - **Runtime:** it downloads the signed manifest and files from our own server only. It checks each file's size,
+    SHA-256 and Ed25519 signature against the pinned `runtimePublicKey`, which is the same scheme as upstream's
+    launcher, then installs into a hard-linked working copy. It removes before writing, so nothing is ever written
+    through a hard link into the pristine install. It also writes the three `DISABLE_*_BRANDING.flag` files and
+    removes any `mystic_loader.ini`.
+  - **Play:** it checks the exe hash, requests `/launcher/v1/game-sessions` with exactly the fields
+    `RequestGameExchangeCode` checks, and starts the game under `dauntless-proton` with upstream's 13 arguments,
+    `MYSTICPARADOX_BACKEND_URL`, `MYSTICPARADOX_RUNTIME_PROFILE=production` and `WINEDLLOVERRIDES=winmm=n,b`. Any
+    other inherited `MYSTICPARADOX_*` variable is dropped, as upstream does.
+  - **Not ported:** Launcher Guard (observe-only upstream), Discord login, realm hosting and launcher self-update.
+    None is needed for two players on dedicated servers.
+- **Server side:** `dauntless-runtime-publish` generates an Ed25519 runtime signing key on first start (upstream's
+  `generate-runtime-key.mjs`). It publishes the Nix-built runtime with upstream's `publish-runtime-update.mjs`,
+  versioned `1.0.0-nix.<dll sha prefix>` (unchanged bytes keep their signature), and exposes the public key at
+  `<stateDir>/updates/runtime-public-key.b64`. The remote player therefore needs neither the SDK nor the MSVC
+  toolchain.
+- **Client module (`nixosModules.client`):** installs the launcher, Proton runner and Legendary; writes
+  `/etc/dauntless-nix/config.json` and the pinned certificate; adds a LAN route (`lanRoute`) or a WireGuard peer
+  whose `allowedIPs` is the server's /32 only.
+- **Verified in the VM test** (the remote player over WireGuard, a fake exe and a fake runtime published through the
+  real feed): register, login, sync with signature check, an exchange code issued, and a wrong runtime key refused.
+
+## D22 — No upstream consent or branding on a private server (2026-11-13)
+- `MYSTICPARADOX_CONSENT_REQUIRED=off`, `MYSTICPARADOX_CONSENT_ENFORCE=off` and `MYSTICPARADOX_EMAIL_VERIFICATION=off`.
+  Upstream's Terms of Use and Privacy Policy belong to the official Mystic Paradox service; upstream itself defaults
+  consent off for "a local server, whose operator sets its own rules". It only defaulted on here because the
+  persistence is MongoDB.
+- The runtime's Mystic Paradox login background, credits and press-start branding are disabled on both servers and
+  clients with upstream's own flag files.
+- **Why:** ADDITIONAL_TERMS §2–4. A modified build must not look like, or be presented as, an official Mystic
+  Paradox release or service.
+
+## D23 — Real-client verification on Linux, off-screen; game traffic over plain HTTP (2026-11-13)
+- **Local stack:** `nix run .#local-stack -- up|down|status|launcher-config` runs the whole server as unprivileged
+  user processes on 127.0.0.1: MongoDB 8 as a single-node replica set, the backend, the signed runtime feed, and the
+  Director with **real** Wine game servers. It is for development; production is `nixosModules.server`.
+  `mongodb-ce` is allowed as unfree for this app only.
+- **Off-screen client:** the real 1.14.7 client runs under `gamescope --backend headless`: GPU rendering with no
+  window on the desktop. `gamescopectl screenshot` captures frames, and `xdotool` on gamescope's Xwayland sends
+  input.
+- **Verified on a desktop PC:**
+  - The Director starts Ramsgate and the Training Grounds under Wine, ready in about 12 s each. The game servers
+    use `[BackendAddress] source=env api=http://127.0.0.1:3000`.
+  - The launcher registers, logs in, syncs the signed runtime and gets an exchange code. The game logs in with it
+    through the runtime's redirect (`oauth/token → 200`, "Logging in a user via a launcher exchange code";
+    `LoginToEpicProxy` and `TryEpicAutomaticLoginProxy` succeed), and the screen shows "Logged in as: DevSlayer".
+  - The game is happy with **plain HTTP** to the backend, which settles the TLS question from D12: no certificate
+    trust inside the game is needed. Game traffic still travels inside WireGuard (remote) or the LAN (local).
+- **Stopped at the game's own Phoenix Labs Terms of Service dialog.** Accepting a third party's terms is the owner's
+  decision, so automation does not click through it.
+- **Branding found and fixed:** the backend's `/dauntless-status` hard-coded "Welcome to Mystic Paradox!" on the
+  login screen. It now comes from `src/statusMessage.ts` with `MYSTICPARADOX_STATUS_MESSAGE` (unset = official
+  text, `off` hides it; upstream-friendly). The module sets `services.dauntless-nix.statusMessage` (default
+  "Private server (dauntless-nix)"). Covered by a unit test and the VM test.
+- **Upstream test suites now run in every package build:** backend 1,681 tests (1,611 pass, 0 fail, 70 skipped
+  that need real game data); Director 35/35.

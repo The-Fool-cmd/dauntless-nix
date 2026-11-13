@@ -30,22 +30,14 @@ import { GetP2PExtension } from "../extensions/p2p";
 import { ActiveSeasonWindow } from "../seasonWindow";
 import { PerAccountQueue } from "../controllers/perAccountQueue";
 
+import { StatusPayload } from "../statusMessage";
+
 export const systemRouter = Router();
 
 systemRouter.get("/dauntless-status", (req, res) => {
     logger.info("Status");
 
-    res.json({
-	    "show-status": true,
-	    "en": "Welcome to Mystic Paradox!",
-	    "fr": "Welcome to Mystic Paradox!",
-	    "it": "Welcome to Mystic Paradox!",
-	    "es": "Welcome to Mystic Paradox!",
-	    "de": "Welcome to Mystic Paradox!",
-	    "pt": "Welcome to Mystic Paradox!",
-	    "ru": "Welcome to Mystic Paradox!",
-	    "ja": "Welcome to Mystic Paradox!"
-    });
+    res.json(StatusPayload());
 });
 
 systemRouter.post("/heartbeat", (req, res) => {

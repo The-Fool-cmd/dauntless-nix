@@ -31,6 +31,13 @@ buildNpmPackage {
 
   # Upstream `npm run build` = clean + tsc.
   npmBuildScript = "build";
+  # Upstream's unit tests (the *.gamedata tests skip themselves without real data; no database needed).
+  doCheck = true;
+  checkPhase = ''
+    runHook preCheck
+    npm test
+    runHook postCheck
+  '';
   dontNpmPrune = false;
 
   installPhase = ''
