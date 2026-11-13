@@ -582,3 +582,17 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   Confirmed in game with the GameSir G7 Pro.
 - **Gotcha:** a relaunch while the game still runs joins the old wineserver, so a fix is only tested after every
   game process has exited.
+
+## D37 — The client wrapper stops Wine after the game exits (2026-11-13)
+- **Problem:** Proton's `waitforexitandrun` returns only when every process in the prefix has exited. After the game
+  quit, a hung Wine helper (services.exe, explorer.exe, ...) could keep the session, `play`, and the open Proton log
+  alive for hours; one such log, already deleted but still held open, grew to 224 GB and filled the disk.
+- **Chosen:** `dauntless-proton` runs Proton in the background and watches for the program it started (matched by
+  executable name among the processes whose `WINEPREFIX` is this prefix; Proton's `steam.exe` shim is ignored).
+  Once that program has exited, Wine gets a grace period (`DAUNTLESS_PROTON_EXIT_GRACE`, default 20 s); if the
+  prefix is still running after it, its processes get SIGTERM (the wineserver saves the registry), then SIGKILL after
+  3 s. `wineserver -k` did not stop a hung session.
+- **Verified:** a `cmd.exe` that leaves a `ping.exe` running: the prefix is stopped 10 s after `cmd.exe` exits and
+  no process is left; a program that exits cleanly returns at once, untouched; the prefix starts normally afterwards.
+- **Gotcha:** an agent shell with a private `/tmp` cannot reach a Wine session whose prefix is under `/tmp` (the
+  wineserver socket lives in `/tmp/.wine-<uid>`); test prefixes belong outside `/tmp`.
