@@ -182,5 +182,6 @@ DLLs come from the server on every `play`. Your game install never changes.
 | `is not Dauntless 1.14.7` | The game was changed or updated: run the install command of step 1 again, which repairs it. |
 | `signature does not verify` | `runtimePublicKey` does not match the server; ask the operator for the current key. |
 | `protonRun` not found | Run the `nix build -o …/proton-run` command of step 3 again. |
+| Controller ignored | Run the `nix build -o …/proton-run` command of step 3 again (older builds lacked a working SDL), and close Steam first: Steam Input does not reach games started outside Steam. |
 | Game says "error communicating with the game servers" | Check `gameBackendUrl`, and `nix run $R#launcher -- status`. |
 | App-menu entry does nothing | Read `~/.local/state/dauntless-nix/play.log`. |
