@@ -67,6 +67,19 @@ simply stays unavailable; nothing else changes and `npm test` does not require i
   replays the first one, and the offer is left out of the player's listing until the reset.
 - `fountain_daily_bundle.example.json` shows the shape.
 
+## Account grants (`account_grants.json`, optional, hand-written; dauntless-nix D30)
+
+Applied at every launcher login (`src/accountGrants.ts`), idempotently; an invalid file is logged and ignored.
+
+```json
+{ "entitlements": ["season43_premium", "ent_boost_vip"],
+  "starterCurrency": { "CURRENCY_PLATINUM_UNIV": 500 }, "starterGrantId": "plat500" }
+```
+
+- `entitlements`: every account holds these; missing ones are granted at login and nothing is revoked.
+- `starterCurrency`: credited once per account, recorded by the entitlement `dauntless_nix_starter_<starterGrantId>`
+  in the same transaction. A new `starterGrantId` credits every account once more.
+
 ## Tester max kit (`tester_max_kit.json`, optional, hand-written)
 
 `POST /admin/v1/players/:userId/tester-max` (controllers/testerMax.ts) reads this file. Copy `tester_max_kit.example.json`

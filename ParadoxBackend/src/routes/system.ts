@@ -17,7 +17,7 @@ import { GauntletConfigPayload, GauntletGuildRewardsPayload, GauntletLeaderboard
 const progressionconfig = loadGameData<any>("progression_config.json");
 import { GetEscalationProgress, SaveEscalationProgress } from "../controllers/escalationProgress";
 import { GetEntitlementsForUser } from "../controllers/entitlements";
-import { ACTIVE_HUNTPASS_PROGRESSION_ID } from "../controllers/progression";
+import { ACTIVE_HUNTPASS_PROGRESSION_ID, IsCosmeticPassId } from "../controllers/progression";
 import { MonitorBountyLoad, MonitorBountySave, MonitorCooldownLoad, MonitorCooldownSave, MonitorSourceOf } from "../diagnostics/economyMonitor";
 import { CooldownSaveValidationError, IsAuthorizedCooldownReader, IsAuthorizedCooldownWriter, IsHostCooldownWriter } from "../cooldownState";
 import { GetCooldownState, SaveCooldowns, StartCooldownHandlers } from "../controllers/cooldowns";
@@ -428,6 +428,7 @@ export function WidenHuntPassWindows(Config: any): any {
     let Ended = 0;
     for (const Path of Paths) {
         if (!Path || !IsHuntPassProgressionId(Path.progression_id)) continue;
+        if (IsCosmeticPassId(Path.progression_id)) continue;   // dauntless-nix D30: served with their own open windows
         if (Path.progression_id === ActiveId) {
             const Window = ActiveSeasonWindow(Now);
             Path.start_date = Window.start;

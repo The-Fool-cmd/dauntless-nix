@@ -152,11 +152,21 @@ export function IsApprovedXpProgressionTrack(progressionId: string): boolean {
     // (a typo'd GAMESERVER_HUNTPASS_ID must not open grants on an ExperienceTrack_/PrestigeTrack_/test track).
     const ServedPass = ServedHuntPassProgressionId();
     const Approved = ApprovedXpTracks.has(progressionId)
-        || (progressionId === ServedPass && HUNT_PASS_ID_PATTERN.test(ServedPass));
+        || (progressionId === ServedPass && HUNT_PASS_ID_PATTERN.test(ServedPass))
+        || IsCosmeticPassId(progressionId);
     return Approved && TrackCurves().has(progressionId);
 }
 
 const HUNT_PASS_ID_PATTERN = /^(season|eventpass_|d24_)/i;
+
+// dauntless-nix D30: the cosmetic passes the 1.14.7 client lists (Hunt Pass vaults, event passes, Reward Cache passes) are
+// served under their own ids with open windows. Each is approved for XP when the config has its curve; which one gets XP
+// is the game's choice (the selected track). Test passes (test_minipass*, eventpass_*_test) never match.
+export const COSMETIC_PASS_ID_PATTERN = /^(season\d{2}[a-z]?_vault|eventpass_(?!.*_test$)[a-z0-9_]+|rewardcache_season\d{2}[a-z]?)$/;
+
+export function IsCosmeticPassId(progressionId: string): boolean {
+    return COSMETIC_PASS_ID_PATTERN.test(progressionId);
+}
 
 // [2026-10-10] Why the grant route refuses a track, for its rejection line - the hunt server itself only logs
 // "OnGrantOnlineProgressionComplete - BadRequest".
