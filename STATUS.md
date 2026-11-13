@@ -65,11 +65,12 @@ servers at run time. Phases are listed in order; each one gates the next.
   still to do.
 
 ## Next
-1. The rest of the game data. Hunt tables, store and Slayer's Path exports need the client in Ramsgate (after the
-   owner accepts the game's own EULA). The Hunt Pass (`season43`) comes from the wiki (D19); which pass maps to
-   season43 is not in the client and needs a decision. Lady Luck store is open.
-2. Deploy to the server (needs the owner): the game copy on the server, the SDK in its store, the host config,
-   the WireGuard port forward, and the remote player's peer key.
-3. Play-test with the owner (accepting the game's own EULA in the client, Ramsgate, party, hunt), then check that
-   progression survives a restart.
-4. Phase 6: MongoDB backups, operator README.
+1. Deployment approach for the server that lives entirely in this repo (no edits to the host's system
+   configuration). See the options in the session handoff.
+2. The game's backend address in production: test HTTPS with the self-signed certificate, or add a tunnel/LAN-only
+   plain-HTTP listener. Then finalize docs/LINUX_PLAYER.md step 3.
+3. Remaining game data: the Hunt Pass (`season43`), Lady Luck, and the Ramsgate-only exports.
+4. Phase 5 play-test (Ramsgate, party, hunt; progression persists across a restart). Phase 6: backups, operator
+   README, registration approval.
+
+Player guide: docs/LINUX_PLAYER.md.
