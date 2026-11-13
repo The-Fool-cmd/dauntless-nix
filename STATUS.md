@@ -66,7 +66,9 @@ servers at run time. Phases are listed in order; each one gates the next.
 
 ## Next
 First real play-test 2026-11-13: login and Ramsgate work on the deployed server (D25–D27).
-1. Hunts: export the hunt tables (EXPORT_HUNTS) from a client in Ramsgate; until then no hunt resolves.
+1. Hunts: tables exported and deployed (D28): 154 of 161 player hunts resolve and a hunt server boots its map on
+   the server. Still to do: play-test a hunt; Expedition islands (7 rows) are unsupported; an unjoined hunt
+   server never exits (it holds one of the `maxConcurrentHunts` slots until `dauntless restart`).
 2. Game data still synthetic: Hunt Pass rewards (season43 is a reward-less skeleton), Reward Cache, Lady Luck,
    Slayer's Path, mastery objectives, platinum store, Heroic Escalation tuning.
 3. Operations: collect game-server logs without root, MongoDB backups, progression persistence across a restart,

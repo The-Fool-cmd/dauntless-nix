@@ -437,3 +437,20 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Decision:** `tools/sdk-fixups/fix-bp-function-names.py` rewrites each lookup to the function's own name (from the
   `// Function Pkg.Class.Name` comment above it). The flake applies it to the SDK for both the runtime and the
   CatalogExporter, so the SDK store path stays the untouched dump.
+
+## D28 — Hunt tables from our own export, installed host-side (2026-11-13)
+- **Context:** the Director still ran the example tables, so no hunt could start (backlog item 1). The guide said
+  the export needs a client in Ramsgate.
+- **Finding:** 1.14.7 loads every hunt table at the main menu. The D24 off-screen client (no login, nothing
+  accepted), injected with `EXPORT_HUNTS=1` only, wrote 1,378 rows in seconds: 161 player hunts, 614 matchmaker rows
+  over 6 tables, and the region, escalation, modifier, activity, unlock and schedule tables. Wine loads our
+  `winmm.dll` only with `WINEDLLOVERRIDES=winmm=n,b`; without it nothing is injected and nothing says so.
+  `mapAssetName` is empty in every row, but `mapAssetPath` (the soft-pointer path) is set, and the importer uses it.
+- **Decision:** upstream's `import_hunt_tables.cjs --apply`, run with `PARADOX_GAME_DATA_DIR` pointing to an empty
+  directory outside the repository, so no example rows are kept: 7 tables, no rejected rows. The tables go to
+  `<gameDataDir>/hunt-data/` on the host, which the module already installs on every start (D25). The
+  output is game data, never committed.
+- **Verified:** the Director's audit reports `problems=0`, with `resolvable=154/161` (7 CR19 Expedition islands are
+  unsupported upstream) and 39 maps. A `ISLAND` matchmaking request for `CR19_PlayerHunt_Pursuit_Electroquill`
+  booted `dia_arid_rose` with the Electroquill, ready in 12 s locally and 6 s on the server.
+- **Open:** the Director has no timeout for a hunt server that no player joins; it holds a slot until restart.
