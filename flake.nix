@@ -27,16 +27,24 @@
       msvcAccepted = builtins.getEnv "DAUNTLESS_NIX_ACCEPT_MSVC_LICENSE" == "1";
       pkgsMsvc = mkPkgs { acceptMicrosoftVisualStudioLicense = msvcAccepted; };
 
+      # Dumper-7 names every Blueprint-event lookup after its class, which aborts the game at the first such call
+      # (tools/sdk-fixups/fix-bp-function-names.py). Every SDK consumer gets the fixed copy.
+      fixSdk = p: sdk: p.runCommand "${sdk.name or "cppsdk"}-fixed" { nativeBuildInputs = [ p.python3 ]; } ''
+        cp -r ${sdk} $out; chmod -R u+w $out
+        python3 -I ${./tools/sdk-fixups/fix-bp-function-names.py} $out
+      '';
+      withFixedSdk = p: args: args // { sdk = fixSdk p args.sdk; };
+
       msvcPackagesFor = p: rec {
         msvc-toolchain = p.callPackage ./nix/pkgs/msvc-toolchain.nix { };
         dumper7 = p.callPackage ./nix/pkgs/dumper7.nix { msvcToolchain = msvc-toolchain; };
         # catalog-exporter { sdk = <CppSDK store path>; }
-        catalog-exporter = args: p.callPackage ./nix/pkgs/catalog-exporter.nix ({ msvcToolchain = msvc-toolchain; } // args);
+        catalog-exporter = args: p.callPackage ./nix/pkgs/catalog-exporter.nix ({ msvcToolchain = msvc-toolchain; } // withFixedSdk p args);
         # runtime { sdk = <CppSDK store path>; publicHost = "..."; }
         runtime = args: p.callPackage ./nix/pkgs/runtime.nix ({
           msvcToolchain = msvc-toolchain;
           runtimeLoader = p.callPackage ./nix/pkgs/runtime-loader.nix { };
-        } // args);
+        } // withFixedSdk p args);
       };
     in {
       packages.${system} = {
