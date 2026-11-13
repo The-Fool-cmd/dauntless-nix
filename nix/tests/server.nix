@@ -206,6 +206,13 @@ in pkgs.testers.runNixOSTest {
         server.wait_until_succeeds("curl -sf http://127.0.0.1:3000/", timeout=120)
         server.wait_for_unit("dauntless-director.service")
 
+    with subtest("An operator collects the server logs without root"):
+        archive = server.succeed("su - op -c 'dauntless collect-logs'").split()[-1]
+        listing = server.succeed(f"su - op -c 'tar -tzf {archive}'")
+        assert "/journal.txt" in listing, listing
+        assert "director/logs/" in listing, listing   # hub logs from the 0750 Director dir
+        server.succeed(f"test $(stat -c %a:%G {archive}) = 640:dauntless-operators")
+
     with subtest("Remote player over WireGuard: nothing else, even ports open on the LAN"):
         for port in (8080, 22, 3000, 3011, 27017):
             remote.fail(f"nc -z -w 3 ${host} {port}")
