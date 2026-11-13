@@ -65,9 +65,11 @@ servers at run time. Phases are listed in order; each one gates the next.
   still to do.
 
 ## Next
-1. Deploy to the server host (D25: on demand, `dauntless up`), then send the WireGuard server key to the remote
-   player and add their peer.
-2. Remaining game data: Hunt Pass rewards per season, Lady Luck, and the Ramsgate-only exports.
+1. Deployed on the server host 2026-11-13 (D25): LAN pong/HTTPS/3080 verified, Ramsgate hub up under Wine. The
+   remote player's WireGuard peer is still to add.
+2. Remaining game data: Hunt Pass rewards per season (the `season43` path is a reward-less skeleton from
+   `tools/data/add-season-path.py`, which the hub needs), Lady Luck, and the Ramsgate-only exports (hunt tables:
+   until then no hunt resolves).
 3. Phase 5 play-test (Ramsgate, party, hunt; progression persists across a restart). Phase 6: backups, operator
    README, registration approval.
 
