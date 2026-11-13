@@ -96,6 +96,19 @@ let
   # Every dauntless unit is part of dauntless.target: `dauntless up` starts it, `dauntless down` stops all of it.
   target = "dauntless.target";
   inTarget = { wantedBy = [ target ]; partOf = [ target ]; };
+  backupScript = pkgs.writeShellScript "dauntless-mongodb-backup" ''
+    set -euo pipefail
+    umask 077
+    dir=${lib.escapeShellArg cfg.backup.dir}
+    mkdir -p "$dir"; chmod 0700 "$dir"
+    out="$dir/mongodb-$(date -u +%Y%m%dT%H%M%SZ)-$1.archive.gz"
+    podman exec dauntless-mongodb mongodump --quiet --uri 'mongodb://127.0.0.1:27017/?directConnection=true' \
+      --archive --gzip > "$out.tmp"
+    [ -s "$out.tmp" ] || { echo "empty dump" >&2; rm -f "$out.tmp"; exit 1; }
+    mv "$out.tmp" "$out"
+    echo "backup: $out ($(stat -c %s "$out") bytes)"
+    ls -1t "$dir"/mongodb-*.archive.gz | tail -n +$((${toString cfg.backup.keep} + 1)) | xargs -r rm -f --
+  '';
   # Operator-visible settings (no secrets): the runtime Hunt Pass override lives here, outside the 0750 stateDir.
   settingsDir = "/var/lib/dauntless-nix-settings";
   huntPassFile = "${settingsDir}/huntpass.env";
@@ -291,6 +304,20 @@ in
         Published, signed with this server's runtime key, to the backend's runtime feed for clients, and installed
         beside the Director's game servers.
       '';
+    };
+
+    backup = {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Dump MongoDB (mongodump --archive --gzip) when the stack starts, before the backend, and when it stops, after
+          the backend has stopped. Root-only files in `backup.dir`; the newest `backup.keep` are kept. Restore: see
+          docs/OPERATIONS.md.
+        '';
+      };
+      dir = mkOption { type = types.str; default = "/var/lib/dauntless-nix-backups"; };
+      keep = mkOption { type = types.ints.positive; default = 30; };
     };
 
     mongodb.uid = mkOption {
@@ -497,11 +524,28 @@ in
       '';
     };
 
+    # ---- backups: a quiet dump at every start (before the backend) and stop (after it) ----
+    systemd.services.dauntless-mongodb-backup = mkIf cfg.backup.enable {
+      description = "dauntless-nix: MongoDB backup at start and stop";
+      after = [ "dauntless-mongodb-rs-init.service" ];
+      requires = [ "dauntless-mongodb-rs-init.service" ];
+      before = [ "dauntless-backend.service" ];
+      inherit (inTarget) wantedBy partOf;
+      path = [ config.virtualisation.podman.package pkgs.coreutils pkgs.findutils ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${backupScript} start";
+        ExecStop = "${backupScript} stop";
+        TimeoutSec = 600;
+      };
+    };
+
     # ---- backend ----
     systemd.services.dauntless-backend = {
       description = "dauntless-nix backend (ParadoxBackend)";
       inherit (inTarget) wantedBy partOf;
-      after = [ "network.target" "dauntless-nix-init.service" "dauntless-mongodb-rs-init.service" ];
+      after = [ "network.target" "dauntless-nix-init.service" "dauntless-mongodb-rs-init.service" "dauntless-mongodb-backup.service" ];
       requires = [ "dauntless-nix-init.service" "dauntless-mongodb-rs-init.service" ];
       environment = systemdEnv;
       serviceConfig = {

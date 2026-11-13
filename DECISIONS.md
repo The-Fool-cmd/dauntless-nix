@@ -519,3 +519,14 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   string; it logs the body, and answers 400 with the body in the log when it cannot read it.
 - **Verified:** tsc clean; the backend tests: 1,799 pass and the same 3 dataset failures; on the dev stack
   GET → season43, POST season10a_vault → saved and returned by GET, a test pass → 400, no key → 401.
+
+## D32 — MongoDB backups at every start and stop (2026-11-13)
+- **Context:** before changing anything that touches saves, the owner's MongoDB needs backups. The stack runs on
+  demand, so a fixed-time timer would usually find it stopped.
+- **Decision:** `dauntless-mongodb-backup.service`, part of `dauntless.target`, ordered after the replica-set init
+  and before the backend. Its `ExecStart` dumps at every start and its `ExecStop` dumps at every stop. Stop runs in
+  reverse order, after the backend has stopped, so both dumps are quiet. `mongodump --archive --gzip` runs inside the
+  container, writing to a root-only directory, and the newest 30 are kept. The backend only `wants` the backup, so a
+  failed dump never blocks play. The restore procedure is in docs/OPERATIONS.md.
+- **Verified (VM test):** a `-start` dump exists after `dauntless up`, the directory is `0700`, the archive passes
+  `mongorestore --dryRun`, and a `-stop` dump exists after `dauntless down`.
