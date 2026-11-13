@@ -570,10 +570,15 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   SDL2 recognises it as a game controller, but plain `steam-run` ships no `libSDL2`, so pads that the kernel drives
   as generic HID (e.g. a GameSir G7 Pro in HID mode) never reached the game. Steam Input does not help either: it
   applies only to games that Steam itself starts.
-- **Chosen:** `nix/pkgs/proton-run.nix` uses `(steam.override { extraLibraries = p: [ p.SDL2 p.sdl3 ]; }).run`
-  (32- and 64-bit). nixpkgs' SDL2 is sdl2-compat, which fails ("Failed loading SDL3 library.") without libSDL3 in the
-  sandbox. Servers keep plain `steam-run`.
+- **Chosen:** `nix/pkgs/proton-run.nix` adds SDL2 (sdl2-compat) and SDL3 to the client's `steam-run` (64-bit,
+  `extraPkgs`). SDL3 is built without X11, Wayland, OpenGL, Vulkan, audio and input-method backends: Proton's
+  `LD_LIBRARY_PATH` puts its own older `libxkbcommon` first, so a full SDL3 fails to load ("version `V_1.10.0' not
+  found", seen by sdl2-compat as "Failed loading SDL3 library.") and winebus silently falls back. Servers keep plain
+  `steam-run`.
 - **Also:** the wrapper's default `WINEDEBUG` drops Proton's `+seh` channel, which grew one session's log to 5 GB;
   `+loaddll`, `+threadname` and `err` stay (they found this bug). Setting `WINEDEBUG` still overrides it.
-- **Verified:** inside the new sandbox, SDL2 initialises and reports the HID-mode GameSir as a game controller
-  (`SDL_IsGameController` = 1). In-game check pending.
+- **Verified:** inside the new sandbox, with the `LD_LIBRARY_PATH` and `SDL_*` environment taken from a running
+  winedevice, SDL2 initialises and reports the HID-mode GameSir as a game controller (`SDL_IsGameController` = 1).
+  In-game check pending.
+- **Gotcha:** a relaunch while the game still runs joins the old wineserver, so a fix is only tested after every
+  game process has exited.
