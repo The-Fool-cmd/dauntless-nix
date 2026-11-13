@@ -10,6 +10,7 @@
  */
 
 import express, { Router } from "express";
+import zlib from "node:zlib";
 import { logger } from "../logger";
 import { HasParadoxBackendAuth } from "../middleware/HasParadoxBackendAuth";
 import { loadGameData } from "../gameData/loader";
@@ -44,7 +45,20 @@ systemRouter.post("/heartbeat", (req, res) => {
     res.status(200).type("text/plain").send("20000");
 });
 
-systemRouter.post("/event", (req, res) => {
+// dauntless-nix D33: telemetry is still dropped, but it is the likeliest carrier of Trials results (no other submission
+// route was ever called), so each batch's event names are logged, and any payload that names a trial or a completion
+// time is logged (truncated) until the Trials leaderboard has its source.
+systemRouter.post("/event", express.raw({ type: () => true, limit: "2mb" }), (req, res) => {
+    try {
+        let Raw: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? ""));
+        if (Raw.length > 2 && Raw[0] === 0x1f && Raw[1] === 0x8b) Raw = zlib.gunzipSync(Raw);
+        const Text = Raw.toString("utf8");
+        const Names = [...new Set([...Text.matchAll(/"(?:EventName|eventName|event_name|EventType|eventType|name)"\s*:\s*"([^"]{1,64})"/g)].map((M) => M[1]))];
+        logger.info(`[Telemetry] ${Raw.length} bytes; events: ${Names.slice(0, 20).join(", ") || "(none named)"}`);
+        if (/trial|completion_?time|Arena_MatchmakerHunt/i.test(Text)) logger.info(`[Telemetry:trial] ${Text.slice(0, 3000)}`);
+    } catch (Err: any) {
+        logger.warn(`[Telemetry] unreadable batch: ${Err?.message ?? Err}`);
+    }
     res.status(200);
     res.json({});
 });

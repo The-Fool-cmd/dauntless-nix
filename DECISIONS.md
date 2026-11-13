@@ -530,3 +530,26 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   failed dump never blocks play. The restore procedure is in docs/OPERATIONS.md.
 - **Verified (VM test):** a `-start` dump exists after `dauntless up`, the directory is `0700`, the archive passes
   `mongorestore --dryRun`, and a `-stop` dump exists after `dauntless down`.
+
+## D33 — Hunt Pass XP rules, the annual event calendar, a Trials probe; the Recycle Cell (2026-11-13)
+- **Hunt Pass XP:** `GET game_tuning/huntpass_xp_config` was an empty stub. It now serves `huntpass_xp_config.json`
+  (host game data) when present. `tools/data/tuning-from-capture.py` writes that file from the live capture,
+  turning its decimal commas back into points. The rules are Heroic Pursuits 20, bounties bronze 20 / silver 40 /
+  gold 100, and at most 200 per award.
+- **Events:** `seasonal_event_schedule` served nothing. It now serves the captured 65 items (events and rumours)
+  from `seasonal_event_schedule.json`. The capture had the six seasonal events parked in 2099 or past. The file's
+  `annual` calendar ("MM-DD" windows, UTC) moves each one to its open or next window at run time:
+  - Saintsbond 02-06..02-27, Springtide 04-01..04-22, Anniversary 05-19..06-09;
+  - Dark Harvest 10-14..11-04, Ramsgiving 11-18..12-09, Frostfall (with its snowball fight and public events)
+    12-11..01-08.
+  `alwaysOn` forces any item on. The client's `seasonal_event_ui_table` has 6 events. Whether each event's content
+  (hunts, stores, decor) works in 1.14.7 is checked in game when one runs.
+- **Trials:** the game only ever read `trials/leaderboards/*` (stubbed empty). No route that submits a result was
+  ever called, and the binary contains none. Telemetry (`POST /event`, previously dropped unread) now logs each
+  batch's event names, and any trial-like payload, so the next trial run shows where results go.
+- **Gauntlet cells:** the drop-table export (main menu, `EXPORT_DROP_TABLES`) shows that the Recycle Cell
+  (`CELL_SAME_PART_DMG_UP_UC`, "+1 Recycle Cell") is already in `DT_CELL_CORE_00`, the 73-cell uniform pool every
+  cell core rolls on. The +2 and +3 tiers are in no drop table. The captured Gauntlet store is from a later build,
+  and its exclusive gold cores are not in 1.14.7. No change.
+- **Verified:** tsc clean; the backend tests: 1,801 pass and the same 3 dataset failures; on the dev stack the
+  XP config, the calendar (2026-11-13: Ramsgiving 2026-11-18..12-09) and the telemetry log answer as described.
