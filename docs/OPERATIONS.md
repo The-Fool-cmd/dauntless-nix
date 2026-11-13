@@ -24,3 +24,19 @@ dauntless up
 
 `--drop` replaces every collection that the archive holds with the archived one. The game-data files are not
 in the database; they come from `gameDataDir` on every start.
+
+## Setting a player's password (forgotten password)
+
+Passwords are stored only as Argon2id hashes (`passwordHash` in `dauntless.accounts`). A password cannot be
+recovered; it can be replaced. Over SSH on the server, with the stack up:
+
+```sh
+B=$(systemctl show -p ExecStart --value dauntless-backend | grep -o '/nix/store/[^ ;]*-dauntless-nix-backend-[^ ;/]*' | head -1)
+NODE=$(grep -o '/nix/store/[^ ]*/bin/node' "$B/bin/dauntless-nix-backend" | head -1)
+read -rsp 'New password: ' P; echo
+H=$(cd "$B/lib/backend" && "$NODE" -e 'require("@node-rs/argon2").hash(process.argv[1]).then(console.log)' "$P"); unset P
+sudo podman exec -e E='player@example.com' -e H="$H" dauntless-mongodb mongosh --quiet dauntless \
+  --eval 'printjson(db.accounts.updateOne({ email: process.env.E }, { $set: { passwordHash: process.env.H } }))'
+```
+
+`matchedCount: 1` means it was set (the email is stored in lower case). The player signs in with the new password.
