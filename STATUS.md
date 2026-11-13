@@ -70,14 +70,15 @@ First real play-test 2026-11-13: login and Ramsgate work on the deployed server 
    the server. Still to do: play-test a hunt; Expedition islands (7 rows) are unsupported; an unjoined hunt
    server never exits (it holds one of the `maxConcurrentHunts` slots until `dauntless restart`).
    A hunt was play-tested on 2026-11-13: it loaded quickly, ran smoothly and paid rewards.
-2. Game data is real (D29): Hunt Passes season43..50, weapon prestige and reforge Aetherhearts, Slayer's Path,
+2. D33: Hunt Pass XP rules and an annual event calendar are served; Trials leaderboards wait for the result path.
+   Game data is real (D29): Hunt Passes season43..50, weapon prestige and reforge Aetherhearts, Slayer's Path,
    mastery objectives, Reward Cache, Lady Luck, platinum store. Still to do: play-test it in game; Heroic Escalation
    tuning (optional, only realm hosts use it).
    D30: every account gets all premium passes, VIP (`ent_boost_vip`), `cc_premium` and 500 Platinum once; the 40
    cosmetic passes (vaults, event and Reward Cache passes) are served. Still to check in game: whether the client
    lists the cosmetic passes and how it switches the selected pass. Owner: listed, selectable, elite visible (D30);
    the selection is now saved (D31).
-3. Operations: collect game-server logs without root, MongoDB backups, progression persistence across a restart,
+3. Operations: MongoDB backups done (D32); collect game-server logs without root, progression persistence across a restart,
    scripted runtime deployment, registration approval.
 4. Remote player onboarding over WireGuard; play-test a party and a hunt together.
 5. Report the Dumper-7 Blueprint-lookup bug upstream (D27).

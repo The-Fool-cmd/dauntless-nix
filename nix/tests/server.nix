@@ -134,6 +134,13 @@ in pkgs.testers.runNixOSTest {
     server.wait_for_unit("dauntless-mongodb-rs-init.service", timeout=300)
     server.wait_for_unit("dauntless-backend.service")
     server.wait_until_succeeds("curl -sf http://127.0.0.1:3000/", timeout=120)
+
+    with subtest("A MongoDB backup is taken at start, root-only, and restores"):
+        server.succeed("systemctl is-active dauntless-mongodb-backup.service")
+        server.succeed("test $(stat -c %a /var/lib/dauntless-nix-backups) = 700")
+        server.succeed("ls /var/lib/dauntless-nix-backups/mongodb-*-start.archive.gz")
+        server.succeed("f=$(ls -t /var/lib/dauntless-nix-backups/*.archive.gz | head -1); "
+                       "podman exec -i dauntless-mongodb mongorestore --dryRun --archive --gzip < $f")
     server.wait_for_unit("nginx.service")
     server.wait_for_unit("dauntless-director.service")
 
@@ -249,6 +256,7 @@ in pkgs.testers.runNixOSTest {
     with subtest("dauntless down stops everything"):
         server.succeed("su - op -c 'dauntless down' >&2")
         server.fail("systemctl is-active dauntless-backend.service dauntless-director.service podman-dauntless-mongodb.service")
+        server.succeed("ls /var/lib/dauntless-nix-backups/mongodb-*-stop.archive.gz")
 
     with subtest("no startup errors in the backend log"):
         server.fail("journalctl -u dauntless-backend.service -b --no-pager | grep -E 'ERROR|Fatal'")

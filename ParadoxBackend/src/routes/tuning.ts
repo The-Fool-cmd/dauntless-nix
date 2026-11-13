@@ -11,6 +11,8 @@
 
 import { Router } from "express";
 import { logger } from "../logger";
+import { tryLoadGameData } from "../gameData/loader";
+import { ResolveSchedule, ScheduleFile } from "../eventCalendar";
 
 export const tuningRouter = Router();
 
@@ -46,35 +48,34 @@ function BountyGrantWindows(){
     ];
 }
 
+// dauntless-nix D33: seasonal_event_schedule.json (host game data) with its annual calendar; the empty stub without it.
 tuningRouter.get("/game_tuning/seasonal_event_schedule", (req: any, res) => {
-    logger.info("Seasonal Event Schedule (stubbed)");
-
-    res.status(200);
-    res.json({
-        code: null,
-        message: "OK",
-        payload: {
-            ScheduledItems: []
-        }
-    });
+    let Payload: any = { ScheduledItems: [] };
+    try {
+        const File = tryLoadGameData<ScheduleFile>("seasonal_event_schedule.json");
+        if (File) Payload = ResolveSchedule(File, Date.now());
+    } catch (Err: any) {
+        logger.error(`Seasonal event schedule rejected, serving none: ${Err?.message ?? Err}`);
+    }
+    logger.info(`Seasonal Event Schedule: ${Payload.ScheduledItems.length} items`);
+    res.status(200).json({ code: null, message: "OK", payload: Payload });
 })
 
+// dauntless-nix D32: huntpass_xp_config.json (host game data, from the live capture); the stub without it.
 tuningRouter.get("/game_tuning/huntpass_xp_config", (req: any, res) => {
-    logger.info("Huntpass XP Config (stubbed)");
-
-    res.status(200);
-    res.json({
-        code: null,
-        message: "OK",
-        payload: {
-            EventConfigs: [],
-            GlobalConfig: {
-                DifficultyBias: 1.000000000000000,
-                GlobalMultiplier: 1.000000000000000,
-                MaxXPAwarded: 200
-            }
-        }
-    });
+    let Payload: any = {
+        EventConfigs: [],
+        GlobalConfig: { DifficultyBias: 1.0, GlobalMultiplier: 1.0, MaxXPAwarded: 200 }
+    };
+    try {
+        const File = tryLoadGameData("huntpass_xp_config.json");
+        if (File && Array.isArray(File.EventConfigs) && File.GlobalConfig) Payload = File;
+        else if (File) logger.error("huntpass_xp_config.json lacks EventConfigs/GlobalConfig; serving the stub");
+    } catch (Err: any) {
+        logger.error(`huntpass_xp_config.json rejected, serving the stub: ${Err?.message ?? Err}`);
+    }
+    logger.info(`Huntpass XP Config: ${Payload.EventConfigs.length} event configs`);
+    res.status(200).json({ code: null, message: "OK", payload: Payload });
 });
 
 tuningRouter.get("/game_tuning/island_content_config", (req: any, res) => {
