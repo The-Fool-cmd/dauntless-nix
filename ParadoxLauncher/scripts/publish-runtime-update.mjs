@@ -1,6 +1,14 @@
 import { sign, createHash, createPrivateKey } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+
+// Re-publishing the same version copies an artifact onto itself, and a read-only source (e.g. a Nix store path)
+// leaves a read-only copy a later publish cannot replace: skip same-path copies and keep published files 0644.
+function publishCopy(src, dest) {
+  if (resolve(src) === resolve(dest)) return;
+  copyFileSync(src, dest);
+  chmodSync(dest, 0o644);
+}
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -66,14 +74,14 @@ if (prevManifest && prevManifest.sha256 === sha256) {
   // Copy the previous artifact so the versioned filename is present.
   const prevArtifactPath = resolve(prevArtifactDir, prevManifest.file);
   if (existsSync(prevArtifactPath)) {
-    copyFileSync(prevArtifactPath, resolve(artifactDir, artifactName));
+    publishCopy(prevArtifactPath, resolve(artifactDir, artifactName));
   } else {
-    copyFileSync(dllPath, resolve(artifactDir, artifactName));
+    publishCopy(dllPath, resolve(artifactDir, artifactName));
   }
   console.log(`  DLL unchanged (preserving signature from v${prevManifest.version})`);
 } else {
   signatureBase64 = sign(null, bytes, signingKey).toString("base64");
-  copyFileSync(dllPath, resolve(artifactDir, artifactName));
+  publishCopy(dllPath, resolve(artifactDir, artifactName));
 }
 
 const extraFiles = [];
@@ -99,12 +107,12 @@ for (const extraPath of extraPaths) {
     // previous artifact dir if available, otherwise from the local file.
     const prevSrc = resolve(prevArtifactDir, extraName);
     const src = existsSync(prevSrc) ? prevSrc : extraPath;
-    copyFileSync(src, resolve(artifactDir, extraName));
+    publishCopy(src, resolve(artifactDir, extraName));
     extraFiles.push(prevExtra);
     console.log(`  extra: ${extraName} (unchanged, preserving signature from v${prevManifest.version})`);
   } else {
     const extraSig = sign(null, extraBytes, signingKey).toString("base64");
-    copyFileSync(extraPath, resolve(artifactDir, extraName));
+    publishCopy(extraPath, resolve(artifactDir, extraName));
     extraFiles.push({
       name: extraName,
       size: extraBytes.length,

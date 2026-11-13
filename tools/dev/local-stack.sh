@@ -79,9 +79,9 @@ cmd_up() {
   secrets
   # Synthetic data unless real files are already there (they are never overwritten).
   for f in "$DN_BACKEND"/lib/backend/game-data/*.example.json; do
-    t="$D/game-data/$(basename "$f" .example.json).json"; [ -e "$t" ] || cp "$f" "$t"; done
+    t="$D/game-data/$(basename "$f" .example.json).json"; [ -e "$t" ] || install -m 0644 "$f" "$t"; done
   for f in "$DN_BACKEND"/lib/hunt-data-examples/*.example.json; do
-    t="$D/hunt-data/$(basename "$f" .example.json).json"; [ -e "$t" ] || cp "$f" "$t"; done
+    t="$D/hunt-data/$(basename "$f" .example.json).json"; [ -e "$t" ] || install -m 0644 "$f" "$t"; done
 
   # Signed runtime feed (same scripts as the module)
   [ -s "$D/secrets/runtime-signing.private.pem" ] || node "$DN_SRC/ParadoxLauncher/scripts/generate-runtime-key.mjs" "$D/secrets/runtime-signing"

@@ -368,3 +368,29 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   "Private server (dauntless-nix)"). Covered by a unit test and the VM test.
 - **Upstream test suites now run in every package build:** backend 1,681 tests (1,611 pass, 0 fail, 70 skipped
   that need real game data); Director 35/35.
+
+## D24 — Real progression data from our own install (2026-11-13)
+- **`tools/CatalogExporter/CMakeLists.txt` + `nix/pkgs/catalog-exporter.nix`** (`lib.msvcPackages … .catalog-exporter
+  { sdk; }`): this mirrors the Release `.vcxproj` and built on the first try with the D14 toolchain. It reads
+  `export_flags.txt` from, and writes `Items_Analysis\` to, the game's working directory, so no machine paths are
+  compiled in.
+- **Export run:** the off-screen client (headless gamescope), injected through `mystic_loader.ini`, with no login and
+  nothing accepted in the client. It took about 12 s: `ALL DONE general=6170 equipment=1608 progression=139
+  currencyNames=53`. Output was moved to `~/Games/dauntless-1.14.7/generated/` and is never committed.
+- **New `ParadoxBackend/scripts/assemble_progression_config.cjs`:** neither upstream nor revamped has the step from
+  the export to `progression_config.source.json`. It builds a path for every track in
+  `APPROVED_XP_PROGRESSION_TRACK_IDS` except the Hunt Pass:
+  - player level (20 ranks, 141,020 XP), 7 weapon tracks (20 ranks each) and 9 mastery tracks with their per-rank
+    rewards, all from the export;
+  - 7 `PrestigeTrack_Weapon_*` (reforge) tracks, synthesised exactly as upstream's `progression.ts` describes them
+    (one 0-XP requirement, `prestige.xp_per_level 1`).
+
+  Upstream's `generate_progression_config.cjs` validated the result and wrote it: 24 paths, 239 reward tiers. The
+  backend starts with no progression warnings.
+- **Still open:** the Hunt Pass (`season43`). Its tier costs and rewards are not in the client (the season table rows
+  are empty), so it comes from revamped's wiki-based `fetch_hunt_passes.cjs`, converted to a `season43` path. Lady Luck
+  store: also open. Neither blocks weapon, player or mastery XP or reforge.
+- **Upstream bug fixed (production-relevant):** `publish-runtime-update.mjs` copies an unchanged artifact onto
+  itself, and a read-only source (a Nix store path) leaves a read-only copy. So the module's publish service would
+  have failed on **every boot after the first**. A `publishCopy` helper now skips same-path copies and writes
+  `0644`. The VM test now restarts the publish service twice.

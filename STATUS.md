@@ -44,6 +44,10 @@ servers at run time. Phases are listed in order; each one gates the next.
 - Director and WireGuard modules (D20): game ports only through the tunnel, no forwarding into the LAN
   (negative-controlled), Director API on loopback.
 
+- Game data (D24): CatalogExporter is built in Nix and ran off-screen against our own install. `progression_config`
+  is assembled for all 23 non-Hunt-Pass XP tracks (player, weapons, mastery, reforge) and accepted by upstream's
+  generator; the backend loads it with no warnings.
+
 ## Doesn't work / not yet checked
 - Only about 48 s of runtime so far; no long soak.
 - The shipping build writes no Unreal log (`Archon.log` holds only open/close lines). Diagnosis will rely on the
@@ -61,10 +65,12 @@ servers at run time. Phases are listed in order; each one gates the next.
   still to do.
 
 ## Next
-1. Real game data (D19). Build CatalogExporter with the D14 toolchain and compare upstream's ProgressionExporter
-   with dauntless-revamped's. The XP tracks export at the front end; hunts, store and Slayer's Path need Ramsgate.
-2. Deploy to the server (needs the owner): the game copy on the server, the SDK in its store, the host config,
-   the WireGuard port forward, and the remote player's peer key.
-3. Play-test with the owner (accepting the game's own EULA in the client, Ramsgate, party, hunt), then check that
-   progression survives a restart.
-4. Phase 6: MongoDB backups, operator README.
+1. Deployment approach for the server that lives entirely in this repo (no edits to the host's system
+   configuration). See the options in the session handoff.
+2. The game's backend address in production: test HTTPS with the self-signed certificate, or add a tunnel/LAN-only
+   plain-HTTP listener. Then finalize docs/LINUX_PLAYER.md step 3.
+3. Remaining game data: the Hunt Pass (`season43`), Lady Luck, and the Ramsgate-only exports.
+4. Phase 5 play-test (Ramsgate, party, hunt; progression persists across a restart). Phase 6: backups, operator
+   README, registration approval.
+
+Player guide: docs/LINUX_PLAYER.md.
