@@ -52,7 +52,7 @@ Copy export_flags.example.txt to export_flags.txt and enable these modes:
 |---|---|---|
 | EXPORT_CATALOG=1 | catalog_1_14_7.jsonl, equipment_1_14_7.jsonl | Main menu or Ramsgate |
 | EXPORT_SLAYERS_PATH=1 | slayers_path_1_14_7/player_journey_nodes.jsonl | Open the Slayer's Path screen |
-| EXPORT_HUNTS=1 | hunts_1_14_7/ (player_hunts.jsonl, matchmaker_hunts.jsonl, hunt_export_manifest.json and more) | Ramsgate, then open the Hunt/Map screen |
+| EXPORT_HUNTS=1 | hunts_1_14_7/ (player_hunts.jsonl, matchmaker_hunts.jsonl, hunt_export_manifest.json and more) | Main menu (1.14.7 loads every hunt table there; no login needed) |
 | EXPORT_STORE_RUNTIME=1 | store_item_images_1_14_7.jsonl and two store view-model captures | Ramsgate, then Journal > Challenges > Reward Cache |
 
 Inject the exporter into your own local client only. Flags are read once at injection, so re-inject
