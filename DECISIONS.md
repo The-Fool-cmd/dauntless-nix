@@ -454,3 +454,32 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   unsupported upstream) and 39 maps. A `ISLAND` matchmaking request for `CR19_PlayerHunt_Pursuit_Electroquill`
   booted `dia_arid_rose` with the Electroquill, ready in 12 s locally and 6 s on the server.
 - **Open:** the Director has no timeout for a hunt server that no player joins; it holds a slot until restart.
+
+## D29 — The rest of the game data: main-menu exports plus a public live-service capture (2026-11-13)
+- **Context:** after D28 the backend still served synthetic Slayer's Path, mastery, Reward Cache, Lady Luck and
+  platinum data, and Hunt Passes without rewards. The client does not hold Hunt Pass rewards or Lady Luck offers.
+- **Exports:** the main menu is enough again, with the same off-screen run as D28 (no login). One run exported
+  Slayer's Path (509 nodes), mastery (258 cards, 46 achievements, already the backend's `mastery_objectives.json`
+  format) and a catalog of 7,318 items (6,170 in D24's run). A second run exported 3,168 `store_item_images` rows.
+  Upstream's generators then built a Slayer's Path of 509 nodes with 459 definitions, a Reward Cache of
+  178 SKUs and a platinum store of 353 SKUs (154 prices reconstructed).
+- **Live-service capture:** EisigesEis/DauntlessEndpointDocumentation (public; commit c0b5355, used locally and never
+  vendored) holds the live `Progression/Config.json` and `ladyluckstore.json`. Upstream's `ladyluck:enrich`
+  serves 38 of its 43 offers; the five gold cell cores are not in the 1.14.7 catalog.
+- **Cross-check:** every weapon and mastery track that D24 built from the client matches the capture exactly
+  (requirements and rewards). Two things differ:
+  - the player level: the capture has 12 ranks, the 1.14.7 client has 20. The capture includes a December 2024
+    season, so it comes from a later build; we keep the client's curve.
+  - the `prestige` blocks: the capture's weapon tracks have an XP rate per prestige level, and its reforge tracks
+    pay one Aetherheart (`CURRENCY_PJM_PRESTIGE_FILLED`) per level. Ours had neither, so a reforge paid no
+    Aetherheart.
+- **Decision:** `tools/data/progression-from-capture.py` copies captured passes onto the ids the client enables:
+  `season43..45 = season25..27` and `season46..50 = season20..24`. season25 ran from 2024-04-11, the pass of this
+  build. Each target keeps its own id, `<id>_premium` gate and dates. The script also copies the prestige blocks
+  onto tracks whose requirements match. Every reward id must exist in the catalog (all 8 × 162 do). The files go
+  to `gameDataDir` on the host (previous versions are kept in `previous/`).
+- **Verified:** upstream's backend tests with the real data: 1,796 pass, 3 fail. The 3 assume upstream's own dataset
+  (an override naming `season19` must find a path; `CURRENCY_PRESTIGE` as a prestige reward). Ours serves only
+  the season ids the client enables and the real prestige rewards. On the dev stack the backend served the config
+  to a real client with no warnings, and season44..50 resolve without clones. The hub was not reached: the dev
+  account stops at the game's EULA, which only the owner accepts.
