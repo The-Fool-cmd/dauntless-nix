@@ -80,6 +80,7 @@ First real play-test 2026-11-13: login and Ramsgate work on the deployed server 
    cosmetic passes (vaults, event and Reward Cache passes) are served. Still to check in game: whether the client
    lists the cosmetic passes and how it switches the selected pass. In game: listed, selectable, elite visible (D30);
    the selection is now saved (D31).
+   D42: the Heroic Escalation XP boost (`escalation_xp_boost_entitlement`) is in the account grants too.
    D40: the event schedule no longer serves the items the capture had switched off (among them
    `Ramsgate_HuntPass_Starts`, parked in 3020), the likely reason passes showed as inactive; to confirm in game.
    New characters start with 10 Rare Cell Cores (`starterItems`).
