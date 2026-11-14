@@ -23,7 +23,7 @@ import { MonitorBountyLoad, MonitorBountySave, MonitorCooldownLoad, MonitorCoold
 import { CooldownSaveValidationError, IsAuthorizedCooldownReader, IsAuthorizedCooldownWriter, IsHostCooldownWriter } from "../cooldownState";
 import { GetCooldownState, SaveCooldowns, StartCooldownHandlers } from "../controllers/cooldowns";
 import { BountyGroupCounts, BountySaveValidationError, BountyStatePayload, HostBountyWriteSummary, IsAuthorizedBountyReader, IsAuthorizedBountyWriter, IsHostBountyWriter, MergeHostBountyState, NewlyClaimedBountyIds } from "../bountyState";
-import { RecordChallengeClaimsActivity } from "../activity/activityMonitor";
+import { RecordChallengeClaimsActivity, TouchGameSession } from "../activity/activityMonitor";
 import { GetBountyState, SaveBountyState } from "../controllers/bounty";
 import { EscalationSeasonProgressUpdate, EscalationTuning, GetEscalationTuning, IsAuthorizedEscalationReader, IsAuthorizedEscalationWriter, IsHostEscalationSeasonAllowed, IsHostEscalationWriter, MergeHostEscalationProgress, RecordToEscalationPayload } from "../escalationProgress";
 import { GetRepositories } from "../persistence";
@@ -32,6 +32,8 @@ import { ActiveSeasonWindow } from "../seasonWindow";
 import { PerAccountQueue } from "../controllers/perAccountQueue";
 
 import { StatusPayload } from "../statusMessage";
+import { ValidateMetagameJWTAndGetPayload } from "../controllers/auth";
+import { RecordClientHeartbeat } from "../operator/clientPresence";
 
 export const systemRouter = Router();
 
@@ -42,6 +44,18 @@ systemRouter.get("/dauntless-status", (req, res) => {
 });
 
 systemRouter.post("/heartbeat", (req, res) => {
+    // dauntless-nix D41: a player's heartbeat (bearer token) is their presence for `dauntless who` and the idle auto-stop.
+    // Game servers carry the gameserver key and no player token here, so they are skipped. Never fails the heartbeat.
+    const Authorization = req.headers.authorization;
+    if (req.headers["x-mysticparadox-gameserver-apikey"] === undefined && typeof Authorization === "string" && /^bearer /i.test(Authorization)) {
+        try {
+            const Payload = ValidateMetagameJWTAndGetPayload(Authorization.slice(7).trim()) as { userId?: unknown };
+            if (typeof Payload?.userId === "string") {
+                RecordClientHeartbeat(Payload.userId, req.body);
+                TouchGameSession(Payload.userId);
+            }
+        } catch { /* expired or foreign token: not counted */ }
+    }
     res.status(200).type("text/plain").send("20000");
 });
 

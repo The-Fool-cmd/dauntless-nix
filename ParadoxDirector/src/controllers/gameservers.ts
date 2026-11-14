@@ -1022,3 +1022,19 @@ export async function Startup(){
         logger.warn(`Persistent hub startup reported failures (${Failures.join("; ")}) - continuing with whichever hubs are up; retrying with backoff until up`);
     }
 }
+
+/** dauntless-nix D41: every game server this Director runs, for `dauntless who` (read-only, loopback route in app.ts). */
+export function ListGameservers(nowMs: number = Date.now()) {
+    return Gameservers
+        .filter((Server) => IsProcessAlive(Server.processId))
+        .map((Server) => ({
+            kind: Server.isRamsgate ? "ramsgate" : Server.isTrainingDojo ? "training" : "hunt",
+            port: Server.port,
+            map: Server.map,
+            behemoth: Server.behemoth ?? null,
+            huntId: Server.matchmakerHuntId ?? null,
+            state: Server.state,
+            expectedPlayers: Server.expectedPlayers?.length ?? 0,
+            uptimeSeconds: Math.max(0, Math.round((nowMs - Server.startTime.getTime()) / 1000))
+        }));
+}

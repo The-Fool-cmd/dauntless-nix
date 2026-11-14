@@ -85,7 +85,9 @@ First real play-test 2026-11-13: login and Ramsgate work on the deployed server 
    New characters start with 10 Rare Cell Cores (`starterItems`).
 3. Operations: MongoDB backups done (D32); `dauntless collect-logs` and `deploy-runtime` done (D39). Still to do:
    check that progression persists across a restart. The fountain coin toss needs `fountain_daily_bundle.json` in
-   the game data (D39).
+   the game data (D39). D41: `dauntless who`, `grant`, `reload`, `backups`, `restore`; idle auto-stop after 30 min;
+   backup size cap; launcher pre-flight messages; untrimmed shader cache. Next: an in-game mailbox (messages with
+   redeemable item parcels, `Mailbox/GetAll.md` + `RedeemParcel.md` in the capture).
 4. Remote player onboarding over WireGuard; play-test a party and a hunt together.
 5. Report the Dumper-7 Blueprint-lookup bug upstream (D27).
 
