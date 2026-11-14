@@ -11,6 +11,9 @@
  *     ever revoked here, so removing a name later leaves it with the accounts that already have it.
  *   - `starterCurrency` + `starterGrantId`: credited once per account. The marker entitlement
  *     `dauntless_nix_starter_<starterGrantId>` records it, in the same transaction, so a new id grants again once.
+ *   - `starterItems` (dauntless-nix D40): stacked items (catalog id -> quantity, no currencies) every NEW character's
+ *     inventory starts with, on top of the built-in starter set (controllers/starterManifest.ts). Read when the
+ *     inventory is created, so characters that already exist are not touched.
  *   - `credits` (dauntless-nix D35): one-time credits to one account each (refunds), `{ id, userId, currency }`. The marker
  *     `dauntless_nix_credit_<id>` records each, so an entry is paid once and can stay in the file.
  * A broken file is logged and ignored: a login is never refused because of it.
@@ -30,6 +33,7 @@ export type AccountGrants = {
     entitlements: string[];
     starterCurrency: Record<string, number>;
     starterGrantId: string;
+    starterItems: Record<string, number>;
     credits: AccountCredit[];
 };
 
@@ -51,6 +55,12 @@ export function ParseAccountGrants(raw: any): AccountGrants {
     else for (const Name of Entitlements) if (!IsValidEntitlementName(Name)) Problems.push(`bad entitlement name ${JSON.stringify(Name)}`);
     const Starter = raw?.starterCurrency ?? {};
     CurrencyProblems(Starter, "starterCurrency", Problems);
+    const Items = raw?.starterItems ?? {};
+    if (typeof Items !== "object" || Items === null || Array.isArray(Items)) Problems.push("starterItems must be an object");
+    else for (const [Id, Amount] of Object.entries(Items)) {
+        if (!/^[A-Z0-9_]{1,128}$/.test(Id) || Id.startsWith("CURRENCY_")) Problems.push(`bad starter item id ${JSON.stringify(Id)}`);
+        if (!Number.isInteger(Amount) || (Amount as number) <= 0 || (Amount as number) > 10_000) Problems.push(`bad amount for starter item ${Id}`);
+    }
     const Credits = raw?.credits ?? [];
     const CreditIds = new Set<string>();
     if (!Array.isArray(Credits)) Problems.push("credits must be an array");
@@ -66,6 +76,7 @@ export function ParseAccountGrants(raw: any): AccountGrants {
     if (!SAFE_ID.test(GrantId) || GrantId.length > 32) Problems.push(`bad starterGrantId ${JSON.stringify(GrantId)}`);
     if (Problems.length > 0) throw new Error(Problems.join("; "));
     return { entitlements: [...new Set<string>(Entitlements)], starterCurrency: Starter, starterGrantId: GrantId,
+        starterItems: Items,
         credits: (Credits as any[]).map((Credit) => ({ id: String(Credit.id), userId: Credit.userId, currency: Credit.currency })) };
 }
 
@@ -77,6 +88,11 @@ export function LoadAccountGrants(): AccountGrants | undefined {
         logger.error(`[AccountGrants] ${ACCOUNT_GRANTS_FILE} rejected, nothing granted: ${Err?.message ?? Err}`);
         return undefined;
     }
+}
+
+/** The extra stacked items a new character starts with (`starterItems`); none without the file. */
+export function StarterItemsForNewCharacter(): Array<{ catalogId: string; quantity: number }> {
+    return Object.entries(LoadAccountGrants()?.starterItems ?? {}).map(([catalogId, quantity]) => ({ catalogId, quantity }));
 }
 
 export function StarterMarker(grants: AccountGrants): string {

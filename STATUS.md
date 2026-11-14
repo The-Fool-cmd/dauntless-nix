@@ -80,6 +80,9 @@ First real play-test 2026-11-13: login and Ramsgate work on the deployed server 
    cosmetic passes (vaults, event and Reward Cache passes) are served. Still to check in game: whether the client
    lists the cosmetic passes and how it switches the selected pass. In game: listed, selectable, elite visible (D30);
    the selection is now saved (D31).
+   D40: the event schedule no longer serves the items the capture had switched off (among them
+   `Ramsgate_HuntPass_Starts`, parked in 3020), the likely reason passes showed as inactive; to confirm in game.
+   New characters start with 10 Rare Cell Cores (`starterItems`).
 3. Operations: MongoDB backups done (D32); `dauntless collect-logs` and `deploy-runtime` done (D39). Still to do:
    check that progression persists across a restart. The fountain coin toss needs `fountain_daily_bundle.json` in
    the game data (D39).
