@@ -689,3 +689,14 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   processed (a burst after a client hitch). No tolerance setting turns that into smooth movement, and the settings
   that exist (correction thresholds, client-authoritative position) would change how movement and hits are judged.
   The shader-cache change addresses the likely cause.
+
+## D42 — The Heroic Escalation XP boost is granted (2026-11-14)
+- **Context:** every account is meant to hold every paid feature (D30), but the Escalation XP boost was missing.
+  The 1.14.7 client reads it from its own entitlement, `escalation_xp_boost_entitlement`
+  (`EntitlementsBlueprintLibrary.EscalationExperienceBoostEntitlement`, `HasEscalationExperienceBoost`); it is
+  not part of `ent_boost_vip`. The captured `entitlementsv2` response holds it as permanent (`duration: 0`,
+  `activatedDate: null`). The timed `ent_hp10*_esc_boost_*` rows are old Hunt Pass rewards; the binary has no
+  string for them.
+- **Decision:** `account_grants.json` lists `escalation_xp_boost_entitlement`. No code change: the file is live
+  data, so the grant is made at each player's next launcher login, and the client sees it after a relaunch.
+- **Open:** confirm in game ("Escalation Boost Active" in an Escalation, boosted XP).
