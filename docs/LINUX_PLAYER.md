@@ -28,6 +28,10 @@ Every command below uses `$R`. Set it again in each new terminal:
 
 ## 1. Install Dauntless 1.14.7 (once, about 15 GB)
 
+The guide uses `~/Games/dauntless-1.14.7` as its example folder; any folder works. If you choose another one, use
+it in every command below and in `config.json` (step 3): nothing else assumes a location. Keep `instance/` on the
+same disk as the game: the launcher builds it with hard links there, and makes a full ~16 GB copy otherwise.
+
     mkdir -p ~/Games/dauntless-1.14.7/manifest && cd ~/Games/dauntless-1.14.7
 
 **Sign in to Epic.** A browser opens. After you sign in, the page shows a short JSON text with an

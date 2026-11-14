@@ -81,6 +81,9 @@ Applied at every launcher login (`src/accountGrants.ts`), idempotently; an inval
   in the same transaction. A new `starterGrantId` credits every account once more.
 - `credits` (D35): `[{ "id": "credit_1", "userId": "<account uuid>", "currency": { "CURRENCY_PLATINUM_UNIV": 150 } }]`,
   each credited once to that one account at its next login (entitlement `dauntless_nix_credit_<id>`).
+- `starterItems` (D40): `{ "CONTAINER_CORE_GOLD_CELLCORE": 10 }`, stacked items (no currencies) added to the built-in
+  starter set of every character created afterwards. Existing characters are not touched; use the store or a hunt
+  reward for them.
 
 ## Tester max kit (`tester_max_kit.json`, optional, hand-written)
 

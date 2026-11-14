@@ -14,6 +14,7 @@ import { ClientSession } from "mongodb";
 import { GetRepositories, GetUnitOfWork, RepositoryProvider } from "../persistence";
 import { logger } from "../logger";
 import { STARTER_WALLET } from "./wallet";
+import { StarterItemsForNewCharacter } from "../accountGrants";
 
 // [hardening 2026-07-14] The authoritative new-player bootstrap manifest. Replaces the previous
 // design (shared MYSTICPARADOX_STARTER_* instance IDs reused across every account, defined in
@@ -238,7 +239,8 @@ export function BuildStarterLoadoutSlot(
 
 // Builds one complete, internally-consistent manifest with fresh IDs. Inventory itemData stays
 // null; weapon appearance and part metadata are stored exclusively in loadout instance_data.
-export function BuildStarterManifest(): StarterManifest {
+// `extraStacked` (dauntless-nix D40): the operator's starter items (account_grants.json), merged into the stacked set.
+export function BuildStarterManifest(extraStacked: Array<{ catalogId: string; quantity: number }> = []): StarterManifest {
     const InstanceIdsByCatalogId: Record<string, string> = {};
     for (const CatalogId of STARTER_INSTANCED_CATALOG_IDS) InstanceIdsByCatalogId[CatalogId] = GenerateStarterInstanceId();
     const Persistent = BuildStarterPersistent(InstanceIdsByCatalogId);
@@ -248,10 +250,20 @@ export function BuildStarterManifest(): StarterManifest {
     return {
         instanceIdsByCatalogId: InstanceIdsByCatalogId,
         instancedItems: InstancedItems,
-        stackedItems: STARTER_STACKED_CATALOG_IDS.map((catalogId) => ({ catalogId, quantity: 1 })),
+        stackedItems: MergeStacked(STARTER_STACKED_CATALOG_IDS.map((catalogId) => ({ catalogId, quantity: 1 })), extraStacked),
         loadoutSlot: BuildStarterLoadoutSlot(InstanceIdsByCatalogId, Persistent),
         persistent: Persistent,
     };
+}
+
+function MergeStacked(base: Array<{ catalogId: string; quantity: number }>, extra: Array<{ catalogId: string; quantity: number }>) {
+    const Out = base.map((Item) => ({ ...Item }));
+    for (const Item of extra) {
+        const Existing = Out.find((Have) => Have.catalogId === Item.catalogId);
+        if (Existing) Existing.quantity += Item.quantity;
+        else Out.push({ catalogId: Item.catalogId, quantity: Item.quantity });
+    }
+    return Out;
 }
 
 function ParseArray(raw: string): any[] {
@@ -461,7 +473,7 @@ export async function EnsureStarterBootstrapRecordsInTransaction(repos: Reposito
     }
 
     if (!inventory && !loadout) {
-        const manifest = BuildStarterManifest();
+        const manifest = BuildStarterManifest(StarterItemsForNewCharacter());
         inventory = { characterId, userId, instancedItems: JSON.stringify(manifest.instancedItems), stackedItems: JSON.stringify(manifest.stackedItems), revision: 0, bootstrapVersion: BOOTSTRAP_VERSION };
         loadout = { characterId, userId, loadouts: JSON.stringify([manifest.loadoutSlot]), persistent: JSON.stringify(manifest.persistent), revision: 0, bootstrapVersion: BOOTSTRAP_VERSION };
         await repos.inventories.create(inventory, session);
@@ -502,7 +514,7 @@ export async function EnsureStarterBootstrapRecords(userId: string, characterId:
 // this is account-creation-time seeding, not a lazy per-GET fallback, so partial application
 // (e.g. inventory created but loadout creation fails) must never be possible.
 export async function SeedNewAccountAtomically(userId: string, characterId: string, session: ClientSession): Promise<StarterManifest> {
-    const Manifest = BuildStarterManifest();
+    const Manifest = BuildStarterManifest(StarterItemsForNewCharacter());
 
     await GetRepositories().inventories.create(
         {

@@ -635,3 +635,20 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   saves sent by player-hosted (realm) servers; without it, those saves are merged and progress never goes down.
   Dedicated servers run by the operator do not need that check.
 
+## D40 — Parked schedule items left out; starter items for new characters (2026-11-14)
+- **Bug:** after D33 the Hunt Pass and its Elite track, and Slayer's Path, showed as not active, and the cosmetic
+  passes could no longer be selected (the hub sent no selection, D31). D33 started serving the live capture's event
+  schedule, which had been empty. The capture switches items off by parking them in a window that never opens:
+  `Ramsgate_HuntPass_Starts` runs from 3020-07-01 to 3020-01-01, and the NPC repeatables, the Grukstorm island and
+  the public frostwolf event start in 2099. An empty schedule (before D33) never said any of this. Entitlements were
+  not the cause: `GET /entitlementsv2` still returns them, and D38's network rules do not touch localhost.
+- **Decision:** `tuning-from-capture.py` leaves out every parked item (start in 2099 or later, or start not before
+  end) unless it is on the annual calendar, as if the schedule had never named it. 8 items are left out; the annual
+  events and rumours are unchanged. Confirmation is a play-test: the dev account has not accepted the game's EULA.
+- **Starter items:** `account_grants.json` gains `starterItems` (catalog id → quantity, stacked, no currencies),
+  merged into the starter inventory of characters created afterwards (`BuildStarterManifest`, both creation
+  paths). Existing characters are not changed.
+- **Rubberbanding (open, minor):** short corrections in hunts match bursts of client moves arriving about 1 s late
+  (`ServerMove: TimeStamp expired`), while the server's CPU is nearly idle. Most likely a client-side hitch (shader
+  compilation under Proton) or a network stall, not the server. No change made.
+- **Verified:** backend tests 1,619 pass, 0 failures, including new tests for `starterItems` parsing and merging.

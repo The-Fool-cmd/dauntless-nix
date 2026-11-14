@@ -83,3 +83,4 @@ desktop.ini
 # --- Generated self-host configuration ---
 .selfhost/
 docs/LOCAL_RELEASE_READINESS.md
+/result
