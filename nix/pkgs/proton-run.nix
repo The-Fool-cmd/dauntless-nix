@@ -35,6 +35,12 @@ in writeShellApplication {
     # Proton's default channels include +seh, which grew one play session's log to 5 GB (D36): keep DLL loads,
     # thread names and errors only.
     export WINEDEBUG="''${WINEDEBUG:-+timestamp,+pid,+tid,+loaddll,+threadname,err+all,fixme-all}"
+    # Shader caches (D41): DXVK 2.x keeps no state cache of its own and relies on the driver's disk cache. Never trim it,
+    # so a shader compiled (and hitched on) once stays compiled: NVIDIA's cleanup and Mesa's 1 GB default evict otherwise.
+    # Same settings Steam uses. Rendering only; set them yourself to override.
+    export __GL_SHADER_DISK_CACHE="''${__GL_SHADER_DISK_CACHE:-1}"
+    export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP="''${__GL_SHADER_DISK_CACHE_SKIP_CLEANUP:-1}"
+    export MESA_SHADER_CACHE_MAX_SIZE="''${MESA_SHADER_CACHE_MAX_SIZE:-10G}"
     echo "dauntless-proton: $(cat ${proton}/version)" >&2
     # Proton's waitforexitandrun returns only once every process in the prefix has exited. A Wine helper that hangs
     # after the game quits (services.exe, explorer.exe, ...) kept whole sessions, and their log, alive for hours (D37):

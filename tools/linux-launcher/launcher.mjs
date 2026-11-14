@@ -77,7 +77,7 @@ function loadSession() {
 }
 
 // ---------- HTTP ----------
-function request(cfg, method, urlString, { json, token, raw = false } = {}) {
+function request(cfg, method, urlString, { json, token, raw = false, timeoutMs = 30000 } = {}) {
   const url = new URL(urlString);
   const mod = url.protocol === "https:" ? https : http;
   const body = json === undefined ? undefined : Buffer.from(JSON.stringify(json));
@@ -85,7 +85,7 @@ function request(cfg, method, urlString, { json, token, raw = false } = {}) {
   if (body) { headers["content-type"] = "application/json"; headers["content-length"] = body.length; }
   if (token) headers.authorization = `Bearer ${token}`;
   return new Promise((resolve, reject) => {
-    const req = mod.request(url, { method, headers, ca: cfg.ca, timeout: 30000 }, (res) => {
+    const req = mod.request(url, { method, headers, ca: cfg.ca, timeout: timeoutMs }, (res) => {
       const chunks = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => {
@@ -98,11 +98,16 @@ function request(cfg, method, urlString, { json, token, raw = false } = {}) {
         try { data = buf.length ? JSON.parse(buf.toString("utf8")) : {}; } catch { data = { raw: buf.toString("utf8").slice(0, 200) }; }
         if (res.statusCode >= 200 && res.statusCode < 300) return resolve(data);
         const err = data?.error ?? {};
-        reject(new Fail(`${method} ${url.pathname}: HTTP ${res.statusCode} ${err.code ?? ""} ${err.message ?? data.raw ?? ""}`.trim()));
+        const f = new Fail(`${method} ${url.pathname}: HTTP ${res.statusCode} ${err.code ?? ""} ${err.message ?? data.raw ?? ""}`.trim());
+        f.status = res.statusCode;
+        reject(f);
       });
     });
-    req.on("timeout", () => req.destroy(new Fail(`${method} ${url.pathname}: timed out`)));
-    req.on("error", (e) => reject(e instanceof Fail ? e : new Fail(`${method} ${url.host}: ${e.message}`)));
+    req.on("timeout", () => { const f = new Fail(`${method} ${url.pathname}: timed out`); f.code = "ETIMEDOUT"; req.destroy(f); });
+    req.on("error", (e) => {
+      if (e instanceof Fail) return reject(e);
+      const f = new Fail(`${method} ${url.host}: ${e.message}`); f.code = e.code; reject(f);
+    });
     if (body) req.write(body);
     req.end();
   });
@@ -199,8 +204,25 @@ async function cmdLogout(cfg) {
   fs.rmSync(sessionFile(), { force: true });
   console.log("signed out");
 }
+// Pre-flight (D41): one quick status call, and a plain answer when it fails, before anything slow happens.
+async function preflight(cfg) {
+  const host = new URL(cfg.server).hostname;
+  let st;
+  try {
+    st = await api(cfg, "GET", "/launcher/v1/status", { timeoutMs: 8000 });
+  } catch (e) {
+    if ([502, 503, 504].includes(e.status)) die(`the server at ${host} is down (the host machine answers, the game server does not): ask whoever runs it to start it`);
+    if (["ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(e.code))
+      die(`cannot reach ${host} (${e.code}): is your WireGuard tunnel up? (wg show / nmcli connection show --active)`);
+    if (/certificate|self.signed|CERT_|altname/i.test(e.message)) die(`${host} presented a certificate this launcher does not trust: check caCertFile (${e.message})`);
+    throw e;
+  }
+  if (st.online === false) die(`the server at ${host} reports itself offline`);
+  if (Number(st.supportedBuildChangelist) !== CHANGELIST) die(`the server expects build ${st.supportedBuildChangelist}, this launcher runs ${CHANGELIST}`);
+  return st;
+}
 async function cmdStatus(cfg) {
-  const st = await api(cfg, "GET", "/launcher/v1/status");
+  const st = await preflight(cfg);
   console.log(`server ${cfg.server}: online=${st.online} build=${st.supportedBuildChangelist}`);
   const s = loadSession();
   console.log(s?.account ? `signed in as ${s.account.displayName}` : "not signed in");
@@ -234,6 +256,7 @@ async function cmdSync(cfg) {
   return manifest.version;
 }
 async function cmdPlay(cfg, args) {
+  await preflight(cfg);
   const version = await cmdSync(cfg);
   const exe = path.join(cfg.instanceDir, EXE_REL);
   const exeSha = sha256File(exe);

@@ -15,6 +15,7 @@ import { loginRouter } from "./routes/login.js";
 import { logger } from "./logger.js";
 import { eosRouter } from "./routes/eos.js";
 import { systemRouter } from "./routes/system.js";
+import { operatorRouter } from "./routes/operator.js";
 import { characterRouter } from "./routes/character.js";
 import { inventoryRouter } from "./routes/inventory.js";
 import { storeRouter } from "./routes/store.js";
@@ -243,6 +244,8 @@ if (AdminApi.enabled) app.use("/", releaseGatesRouter);
 app.use(RequestLimiter);
 
 app.use("/", metricsRouter);
+// dauntless-nix D41: the host's `dauntless` command (who, grant); 404 unless MYSTICPARADOX_OPERATOR_TOKEN is set.
+app.use("/", operatorRouter);
 
 app.use("/", loginRouter);
 app.use("/", eosRouter);

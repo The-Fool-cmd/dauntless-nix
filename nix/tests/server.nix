@@ -139,7 +139,8 @@ in pkgs.testers.runNixOSTest {
 
     with subtest("A MongoDB backup is taken at start, root-only, and restores"):
         server.succeed("systemctl is-active dauntless-mongodb-backup.service")
-        server.succeed("test $(stat -c %a /var/lib/dauntless-nix-backups) = 700")
+        server.succeed("test $(stat -c %a:%G /var/lib/dauntless-nix-backups) = 750:dauntless-operators")
+        server.succeed("test $(stat -c %a $(ls /var/lib/dauntless-nix-backups/*.archive.gz | head -1)) = 600")
         server.succeed("ls /var/lib/dauntless-nix-backups/mongodb-*-start.archive.gz")
         server.succeed("f=$(ls -t /var/lib/dauntless-nix-backups/*.archive.gz | head -1); "
                        "podman exec -i dauntless-mongodb mongorestore --dryRun --archive --gzip < $f")
@@ -259,6 +260,29 @@ in pkgs.testers.runNixOSTest {
         assert out["exchangeCodeIssued"] and out["backendUrl"] == "https://${host}", out
         assert "-AUTH_TYPE=exchangecode" in out["args"] and "-NoEAC" in out["args"], out
 
+    with subtest("Operator tools without sudo: who, grant, backups, idle check; the API stays host-only"):
+        out = server.succeed("su - op -c 'dauntless who'")
+        print(out)
+        assert "nobody online" in out and "ramsgate" in out, out
+        out = server.fail("su - op -c 'dauntless grant AliceSlayer EXAMPLE_DYE_00 5' 2>&1")   # a stacked id of the synthetic data
+        assert "has no character yet" in out, out          # the name resolved to the launcher account
+        out = server.fail("su - op -c 'dauntless grant NoSuchSlayer EXAMPLE_DYE_00 5' 2>&1")
+        assert "no account named" in out, out
+        out = server.fail("su - op -c 'dauntless grant AliceSlayer WEAPON_NOT_STACKED 1' 2>&1")
+        assert "not a known stacked item" in out, out
+        server.succeed("test \"$(stat -c %a:%G /var/lib/dauntless-nix-settings/operator.token)\" = 640:dauntless-operators")
+        server.fail("runuser -u nobody -- cat /var/lib/dauntless-nix-settings/operator.token")
+        tok = server.succeed("cat /var/lib/dauntless-nix-settings/operator.token").strip()
+        server.succeed(f"curl -sf -H 'Authorization: Bearer {tok}' http://127.0.0.1:3000/operator/v1/who")
+        # Through nginx (plain port and HTTPS) it is refused, token or not.
+        server.fail(f"curl -sf -H 'Authorization: Bearer {tok}' http://127.0.0.1:3080/operator/v1/who")
+        lan.fail(f"curl -sfk -H 'Authorization: Bearer {tok}' https://${host}/operator/v1/who")
+        out = server.execute("su - op -c 'dauntless backups' 2>&1"); print(out)
+        assert out[0] == 0 and "-start.archive.gz" in out[1], out
+        server.succeed("systemctl is-active dauntless-idle-check.timer")
+        server.succeed("systemctl start dauntless-idle-check.service")
+        server.succeed("systemctl is-active dauntless-backend.service")   # 30 min limit: nothing stopped yet
+
     with subtest("Launcher refuses a runtime whose signature does not verify"):
         bad = dict(cfg); bad["runtimePublicKey"] = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
         bad["instanceDir"] = "/home/alice/game/instance2"
@@ -278,6 +302,15 @@ in pkgs.testers.runNixOSTest {
         server.succeed("su - op -c 'dauntless down' >&2")
         server.fail("systemctl is-active dauntless-backend.service dauntless-director.service podman-dauntless-mongodb.service")
         server.succeed("ls /var/lib/dauntless-nix-backups/mongodb-*-stop.archive.gz")
+        err = remote.fail(f"{run} status 2>&1")   # nginx answers 502: the launcher says the server is down
+        assert "is down" in err, err
+
+    with subtest("An operator restores a backup; the stack stays down"):
+        name = server.succeed("ls -1t /var/lib/dauntless-nix-backups | grep -- '-start.archive.gz' | head -1").strip().removesuffix(".archive.gz")
+        server.fail("su - op -c 'echo no | dauntless restore " + name + "'")
+        server.succeed("su - op -c 'echo yes | dauntless restore " + name + "' >&2", timeout=600)
+        server.succeed("journalctl -u 'dauntless-restore@*' -b | grep -q 'restored " + name + "'")
+        server.fail("systemctl is-active dauntless-backend.service podman-dauntless-mongodb.service")
 
     with subtest("no startup errors in the backend log"):
         server.fail("journalctl -u dauntless-backend.service -b --no-pager | grep -E 'ERROR|Fatal'")

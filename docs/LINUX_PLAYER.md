@@ -176,12 +176,16 @@ The icon is taken from your own copy of the game. If the entry does nothing, rea
 itself. To pick up a fix right away, add `--refresh` once: `nix run --refresh $R#launcher -- play`. The runtime
 DLLs come from the server on every `play`. Your game install never changes.
 
+The Proton wrapper keeps the GPU driver's shader cache untrimmed, so a stutter caused by a new shader happens only
+the first time that shader is seen.
+
 ## Troubleshooting
 
 | Problem | What to do |
 |---|---|
 | `cannot read config` | Check the path and the JSON syntax of `~/.config/dauntless-nix/config.json`. |
-| `POST … HTTP 000` / timeout | Is the tunnel up (`nmcli connection show --active`)? Does `ping <server address>` answer? Is the server running (ask the operator)? |
+| `cannot reach … is your WireGuard tunnel up?` | Bring the tunnel up (`nmcli connection show --active`, `wg show`). Does `ping <server address>` answer? |
+| `the server at … is down` | The tunnel works but the game server is stopped (it stops itself after a while with nobody online): ask the operator to start it. |
 | `not signed in` | `nix run $R#launcher -- login`. |
 | `is not Dauntless 1.14.7` | The game was changed or updated: run the install command of step 1 again, which repairs it. |
 | `signature does not verify` | `runtimePublicKey` does not match the server; ask the operator for the current key. |
