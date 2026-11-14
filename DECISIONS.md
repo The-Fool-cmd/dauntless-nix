@@ -652,3 +652,40 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   (`ServerMove: TimeStamp expired`), while the server's CPU is nearly idle. Most likely a client-side hitch (shader
   compilation under Proton) or a network stall, not the server. No change made.
 - **Verified:** backend tests 1,619 pass, 0 failures, including new tests for `starterItems` parsing and merging.
+
+## D41 — Operator tools, idle auto-stop, backup cap, launcher pre-flight, shader cache (2026-11-14)
+- **Presence:** every game client POSTs `tracking-prod/heartbeat` every 20 s with its bearer token and its state and
+  map (capture: `TrackingTelemetry/Heartbeat.md`). The route used to drop it; now a valid player token records the
+  latest heartbeat per account in memory (`operator/clientPresence.ts`) and touches the session presence. Game servers
+  carry no player token here and are never counted.
+- **Operator API:** `/operator/v1/who` and `/operator/v1/grant` (`routes/operator.ts`), off unless
+  `MYSTICPARADOX_OPERATOR_TOKEN` is set. They accept only a direct loopback peer, no forwarding header (nginx always
+  adds `X-Forwarded-For`) and the bearer token, and nginx returns 404 for `/operator/` as well. Upstream's admin API
+  (cookie sign-in, Discord, a dashboard) stays off: a token on the host is enough for one operator and has less
+  surface. The init service generates the token; a copy is group-readable by `dauntless-operators`. The `dauntless`
+  command sends it through a file descriptor, never on the command line.
+- **Grant:** one inventory transaction (the path the store and the tester kit use, source `OPERATOR`) on the
+  account's character. Only ids the 1.14.7 storage policy marks as stacked are accepted (currencies included), which
+  rules out typos and instanced items. `platinum` means `CURRENCY_PLATINUM_UNIV`, the bucket rewards credit.
+- **who:** the presence above plus the Director's new read-only `/api/servers` (loopback, like its other routes).
+- **reload:** the game-data copy that ran only at start is now a script that `dauntless reload` can run on its own.
+  Most files are cached at start, so it says which changed files are live and which need a restart.
+- **Idle auto-stop:** a per-minute timer, part of `dauntless.target`, stops the stack (with its stop backup) after
+  `idleStop.minutes` (default 30) without a player heartbeat or a hunt server. It does not decide when the backend does
+  not answer, and it ignores an idle mark older than the backend's start. Safe for time-based game state: the backend
+  keeps no gameplay timers (cooldowns, resets and the Hunt Pass are stored times), and stopping is the same path as
+  `dauntless down`.
+- **Backups:** besides `keep`, a size cap (`maxTotalMiB`, default 2048) drops the oldest, never the newest two. The
+  directory is listable by operators (the files stay root-only). `dauntless restore NAME` runs a templated root unit
+  (polkit allows only backup-shaped names): it copies the archive first, so pruning cannot remove it, then stops the
+  stack, dry-runs, restores with `--drop` and leaves the server down.
+- **Launcher pre-flight:** `play` and `status` first make one status call with an 8 s timeout and turn the failure
+  into a plain message: tunnel down (timeout, unreachable, refused), server down (nginx answers 502/503/504),
+  untrusted certificate, or a different build. The runtime was already re-synced and verified on every `play`.
+- **Shader cache:** DXVK 2.x (D3D11 here) keeps no state cache; the driver's disk cache does the work. The Proton
+  wrapper sets `__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1` (NVIDIA) and `MESA_SHADER_CACHE_MAX_SIZE=10G`, as Steam does, so
+  compiled shaders are not evicted. Rendering only.
+- **Rubberbanding, no server change:** `ServerMove: TimeStamp expired` means a move arrived older than one already
+  processed (a burst after a client hitch). No tolerance setting turns that into smooth movement, and the settings
+  that exist (correction thresholds, client-authoritative position) would change how movement and hits are judged.
+  The shader-cache change addresses the likely cause.
