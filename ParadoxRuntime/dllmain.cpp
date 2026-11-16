@@ -6218,6 +6218,131 @@ static void SampleBleedoutGraceGuarded() {
     __try { SampleBleedoutGrace(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+// [2026-11-14] BEAM_DIAG.flag: Valomyr beam/satellite diagnostic, client AND server, read-only.
+// Symptom: Valomyr's satellite beams hit on the server, but the client draws them stuck/twitching in one direction.
+// What the 1.14.7 exe does (static disassembly):
+//   UProjectileBehavior_BeamBase::GetAlpha = SpeedCurve((World.TimeSeconds - Beam+0x150) / max(InternalCalculatedValue
+//   +0x160, eps)), local world time (UWorld+0x598). Beam+0x150 (start) is set from local time by InitializeBeam,
+//   which OnRep_InternalCalculatedValue calls, so every re-receive restarts the sweep.
+//   UOrbitingProjectileComponent::TimeElapsed = local World.TimeSeconds - SpawnTime(+0xB0, replicated); normalised by
+//   the owner's float at +0x34C. Owner = component+0xA0.
+// Logs: [BeamDiag] beam+/beam-restart/beam-/orb+/orb samples, with the world time, so a restart (A) or a clock offset
+// (B) shows directly. Flag re-read every 5 s; one GObjects pass every 200 ms while on.
+struct MpBeamDiagEntry { float start = 0; float first = 0; float lastLog = -100; int restarts = 0; bool seen = false; std::string name; };
+static std::unordered_map<uintptr_t, MpBeamDiagEntry> g_beamDiagBeams, g_beamDiagOrbs;
+
+static float MpBeamDiagF(const void* Base, uintptr_t Off) { return *reinterpret_cast<const float*>(reinterpret_cast<uintptr_t>(Base) + Off); }
+static std::string MpBeamDiagNum(float v) { char b[32]; sprintf_s(b, "%.3f", v); return b; }
+
+static void MpBeamDiagPass() {
+    static int s_on = -1;
+    static uint64_t s_flagMs = 0, s_lastMs = 0, s_gsMs = 0;
+    const uint64_t now = GetTickCount64();
+    if (s_on < 0 || now - s_flagMs > 5000) {
+        const int was = s_on;
+        s_on = MpExeRelativeFlagPresent(L"BEAM_DIAG.flag") ? 1 : 0;
+        s_flagMs = now;
+        if (s_on != was && s_on == 1) MpLog(std::string("[BeamDiag] ON role=") + (Globals::AmServer ? "server" : "client"));
+    }
+    if (s_on != 1 || now - s_lastMs < 200) return;
+    s_lastMs = now;
+    if (!SDK::UObject::GObjects) return;
+
+    void* World = *reinterpret_cast<void**>(Globals::BaseAddress + 0x06FC7F58);
+    if (!World || !IsReadablePointer(World, 0x5A0)) return;
+    const float T = MpBeamDiagF(World, 0x598);
+
+    if (now - s_gsMs > 5000) {   // AGameStateBase: ReplicatedWorldTimeSeconds +0x24C, ServerWorldTimeSecondsDelta +0x250
+        s_gsMs = now;
+        void* GS = *reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(World) + 0x120);
+        if (GS && IsReadablePointer(GS, 0x258) && (!g_beamDiagBeams.empty() || !g_beamDiagOrbs.empty()))
+            MpLog("[BeamDiag] clock T=" + MpBeamDiagNum(T) + " gsRepWorldTime=" + MpBeamDiagNum(MpBeamDiagF(GS, 0x24C))
+                + " gsServerDelta=" + MpBeamDiagNum(MpBeamDiagF(GS, 0x250)));
+    }
+
+    static SDK::UClass* BeamClass = nullptr;
+    static SDK::UClass* OrbClass = nullptr;
+    if (!BeamClass) BeamClass = SDK::UProjectileBehavior_BeamBase::StaticClass();
+    if (!OrbClass) OrbClass = SDK::UOrbitingProjectileComponent::StaticClass();
+    if (!BeamClass || !OrbClass) return;
+
+    for (auto& kv : g_beamDiagBeams) kv.second.seen = false;
+    for (auto& kv : g_beamDiagOrbs) kv.second.seen = false;
+
+    const int Count = SDK::UObject::GObjects->Num();
+    for (int i = 0; i < Count; i++) {
+        SDK::UObject* Obj = SDK::UObject::GObjects->GetByIndex(i);
+        if (!Obj || Obj->IsDefaultObject()) continue;
+        const bool isBeam = Obj->IsA(BeamClass);
+        const bool isOrb = !isBeam && Obj->IsA(OrbClass);
+        if (!isBeam && !isOrb) continue;
+        const uintptr_t key = reinterpret_cast<uintptr_t>(Obj);
+        if (isBeam) {
+            if (!IsReadablePointer(Obj, 0x310)) continue;
+            const float start = MpBeamDiagF(Obj, 0x150), dur = MpBeamDiagF(Obj, 0x160);
+            const uint8_t init = *reinterpret_cast<uint8_t*>(key + 0x308), rep = *reinterpret_cast<uint8_t*>(key + 0x309);
+            auto it = g_beamDiagBeams.find(key);
+            if (it == g_beamDiagBeams.end()) {
+                MpBeamDiagEntry e; e.start = start; e.first = T;
+                e.name = (Obj->Outer ? Obj->Outer->GetName() : std::string("?")) + "." + Obj->GetName();
+                MpLog("[BeamDiag] beam+ " + MpPtr(Obj) + " " + e.name + " T=" + MpBeamDiagNum(T) + " start="
+                    + MpBeamDiagNum(start) + " dur=" + MpBeamDiagNum(dur) + " init=" + std::to_string(init)
+                    + " rep=" + std::to_string(rep));
+                it = g_beamDiagBeams.emplace(key, e).first;
+            } else if (start != it->second.start) {
+                ++it->second.restarts;
+                MpLog("[BeamDiag] beam-restart " + MpPtr(Obj) + " T=" + MpBeamDiagNum(T) + " start "
+                    + MpBeamDiagNum(it->second.start) + " -> " + MpBeamDiagNum(start) + " dur=" + MpBeamDiagNum(dur)
+                    + " n=" + std::to_string(it->second.restarts));
+                it->second.start = start;
+            }
+            it->second.seen = true;
+            if (T - it->second.lastLog >= 0.5f) {
+                it->second.lastLog = T;
+                const float alpha = dur > 0.0001f ? (T - start) / dur : -1.0f;
+                MpLog("[BeamDiag] beam " + MpPtr(Obj) + " T=" + MpBeamDiagNum(T) + " alphaRaw=" + MpBeamDiagNum(alpha)
+                    + " end=(" + MpBeamDiagNum(MpBeamDiagF(Obj, 0x13C)) + "," + MpBeamDiagNum(MpBeamDiagF(Obj, 0x140))
+                    + "," + MpBeamDiagNum(MpBeamDiagF(Obj, 0x144)) + ") init=" + std::to_string(init));
+            }
+        } else {
+            if (!IsReadablePointer(Obj, 0xB8)) continue;
+            const float spawn = MpBeamDiagF(Obj, 0xB0), norm = MpBeamDiagF(Obj, 0xB4);
+            void* Owner = *reinterpret_cast<void**>(key + 0xA0);
+            const float life = (Owner && IsReadablePointer(Owner, 0x350)) ? MpBeamDiagF(Owner, 0x34C) : -1.0f;
+            auto it = g_beamDiagOrbs.find(key);
+            const bool fresh = it == g_beamDiagOrbs.end();
+            if (fresh) {
+                MpBeamDiagEntry e; e.start = spawn; e.first = T;
+                e.name = (Obj->Outer ? Obj->Outer->GetName() : std::string("?")) + "." + Obj->GetName();
+                it = g_beamDiagOrbs.emplace(key, e).first;
+            } else if (spawn != it->second.start) {
+                ++it->second.restarts;
+                it->second.start = spawn;
+            }
+            it->second.seen = true;
+            if (fresh || T - it->second.lastLog >= 0.5f) {
+                it->second.lastLog = T;
+                const float el = T - spawn;
+                MpLog(std::string("[BeamDiag] ") + (fresh ? "orb+ " : "orb ") + MpPtr(Obj) + (fresh ? " " + it->second.name : "")
+                    + " T=" + MpBeamDiagNum(T) + " spawnTime=" + MpBeamDiagNum(spawn) + " elapsed=" + MpBeamDiagNum(el)
+                    + " life=" + MpBeamDiagNum(life) + " normLocal=" + MpBeamDiagNum(life > 0.0001f ? el / life : -1.0f)
+                    + " normRep=" + MpBeamDiagNum(norm) + " spawnChanges=" + std::to_string(it->second.restarts));
+            }
+        }
+    }
+    for (auto it = g_beamDiagBeams.begin(); it != g_beamDiagBeams.end();) {
+        if (it->second.seen) { ++it; continue; }
+        MpLog("[BeamDiag] beam- " + MpPtr(reinterpret_cast<void*>(it->first)) + " lived=" + MpBeamDiagNum(T - it->second.first)
+            + " restarts=" + std::to_string(it->second.restarts));
+        it = g_beamDiagBeams.erase(it);
+    }
+    for (auto it = g_beamDiagOrbs.begin(); it != g_beamDiagOrbs.end();) {
+        if (it->second.seen) { ++it; continue; }
+        MpLog("[BeamDiag] orb- " + MpPtr(reinterpret_cast<void*>(it->first)) + " lived=" + MpBeamDiagNum(T - it->second.first));
+        it = g_beamDiagOrbs.erase(it);
+    }
+}
+
 // [2026-07-20 TRIALS GRACE DIAG v2] The tick sampler above reads AArchonPlayerState.BleedoutState (+0x3AC),
 // which is BlueprintVisible but NOT Net -> it can stay 0 on the dedicated server (bleedout is tracked on the
 // per-character UArchonBleedoutComponent). So also hook the knockout routine (FUN_141b8acd0 @ RVA 0x01B8ACD0),
@@ -7389,6 +7514,8 @@ void GameEngineTickHook(UGameEngine* GameEngine, float DeltaTime, char CanRender
     MpProgressionWaitPoll();
     MpArrivalTriggerServerProbe();   // read-only diagnostic, 40 s after each login
     MpHuntPassServerStateTick();     // read-only diagnostic, every 10 s, logs changes only
+
+    MpBeamDiagPass();   // [2026-11-14] BEAM_DIAG.flag, both roles, read-only (see its definition)
 
     // [2026-07-20] Server-side skeletal pose/socket fix (FORCE_SERVER_MESH_POSE.flag). Server-only; the
     // helper self-throttles + no-ops unless the flag is present. See its definition above.
@@ -10493,6 +10620,32 @@ void __fastcall ArchonRouteAddNetworkActorHook(
                     + " graph=" + MpPtr(Graph)
                     + " globalInfo=" + MpPtr(GlobalInfo)
                     + " result=" + std::to_string(SettingsResult) + SettingsDetail);
+            }
+        } else if (RepGraphRelevanceFixEnabled()
+            && !MpExeRelativeFlagPresent(L"DISABLE_BEAM_CHANNEL_GRACE.flag")
+            && (ActorObject->IsA(SDK::AArchonProjectileBase::StaticClass())
+                || ActorObject->IsA(SDK::AArchonBeam::StaticClass()))) {
+            // [2026-11-16 BEAM CHANNEL CHURN FIX] Measured with the beam diagnostic in a Valomyr hunt: the server
+            // spawned 8 salt_satellite_beam_fixed_bp actors in 5 s, each sweeping normally for its 5 s life, while the
+            // client created ~240 beam actors in the same window - every beam rebuilt about every 250 ms, which is the
+            // stock channel grace (ActorChannelFrameTimeout 4 + period + graph timeout, ~7 frames at 30 Hz). A
+            // rebuilt beam runs InitializeBeam again and restarts its sweep from the start angle (GetAlpha uses a
+            // local start time), so the client drew the beam twitching near its first direction while the server's
+            // sweep hit correctly. Beam actors get the player grace and no distance cull, so a relevancy gap cannot
+            // close their channel before they expire. Other projectiles are untouched.
+            std::string ClassName = ActorObject->Class ? ActorObject->Class->GetName() : std::string();
+            std::string Lower = ClassName;
+            std::transform(Lower.begin(), Lower.end(), Lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (Lower.find("beam") != std::string::npos) {
+                std::string SettingsDetail;
+                const int SettingsResult = RepGraphApplyGlobalSettings(
+                    GlobalInfo, true, kRepGraphPlayerChannelGraceFrames, &SettingsDetail);
+                static std::unordered_set<std::string> s_loggedBeamClasses;
+                if (s_loggedBeamClasses.insert(ClassName).second) {
+                    MpLog("[BeamChannelGrace] class=" + ClassName + " actor=" + MpPtr(Actor)
+                        + " result=" + std::to_string(SettingsResult) + SettingsDetail
+                        + " (logged once per class)");
+                }
             }
         }
     }
@@ -14371,6 +14524,7 @@ void ProcessEventClientHook(UObject* Object, UFunction* Function, void* Parms) {
         if (NowMs - s_worldCensusCheckMs >= 250) {
             s_worldCensusCheckMs = NowMs;
             MpWorldCensusTick();
+            MpBeamDiagPass();   // [2026-11-14] BEAM_DIAG.flag (client side of the beam diagnostic)
         }
     }
     // s_LastPossessedPC is now file-scope (see above) so GameEngineTickHook's timeout fallback

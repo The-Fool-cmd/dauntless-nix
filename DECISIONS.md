@@ -700,3 +700,17 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Decision:** `account_grants.json` lists `escalation_xp_boost_entitlement`. No code change: the file is live
   data, so the grant is made at each player's next launcher login, and the client sees it after a relaunch.
 - **Open:** confirm in game ("Escalation Boost Active" in an Escalation, boosted XP).
+
+## D44 — Beam actors keep their network channel (2026-11-16)
+- **Context:** Valomyr's satellite beams hit correctly but clients drew them twitching near their first direction.
+  In 1.14.7 the sweep is not replicated: `UProjectileBehavior_BeamBase::GetAlpha` computes it from the client's own
+  world time minus a start time that `InitializeBeam` (called from `OnRep_InternalCalculatedValue`) sets locally,
+  so every new client copy of a beam starts its sweep again.
+- **Measured** (runtime `[BeamDiag]`, `BEAM_DIAG.flag`): in one burst the server spawned 8 `salt_satellite_beam_fixed_bp`
+  actors, each sweeping for 5 s; the client created about 240. Each beam channel closed after the stock relevancy
+  grace (`ActorChannelFrameTimeout` 4, about 7 frames at 30 Hz) and reopened, so the client rebuilt the beam about
+  every 250 ms. The class had a 15 000-unit cull distance.
+- **Decision:** at replication-graph registration, projectile and beam actors whose class name contains `beam` get
+  the player channel grace (300 frames) and no distance cull (`[BeamChannelGrace]`, logged once per class).
+  `DISABLE_BEAM_CHANNEL_GRACE.flag` reverts it. Other projectiles are unchanged.
+- **Verified:** afterwards client and server counted the same beams (19 each) in a Valomyr fight.
