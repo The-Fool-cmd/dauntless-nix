@@ -14249,6 +14249,7 @@ struct MpFunctionNameCacheEntry {
     int32_t Index; int32_t NameIndex; uint32_t NameNumber; const void* Outer; std::string Name;
     uint64_t PeMask; bool PeMaskValid;
     int8_t TravelSkip;   // [2026-10-16 0.2.142] TravelCause: -1 unknown, 1 = a per-frame function the history leaves out
+    int8_t LoadoutTrace; // [D45] LoadoutTrace: -1 unknown, 0 no, 1 an ArchonLoadout* OnRep_ callback
 };
 static MpFunctionNameCacheEntry& CachedFunctionNameEntry(UFunction* Function) {
     static thread_local std::unordered_map<const void*, MpFunctionNameCacheEntry> s_names;
@@ -14267,6 +14268,7 @@ static MpFunctionNameCacheEntry& CachedFunctionNameEntry(UFunction* Function) {
     Slot.PeMask = 0;
     Slot.PeMaskValid = false;
     Slot.TravelSkip = -1;
+    Slot.LoadoutTrace = -1;
     return Slot;
 }
 
@@ -14511,6 +14513,184 @@ namespace TravelCause {
     }
 }
 
+// [D45 2026-11-17] [LoadoutTrace] - read-only client trace for the empty-equipment bug. Symptom (solo too): after a map
+// load the Equipment screen shows every slot empty (Power/Resistance 0, character drawn unequipped, weapon XP bar 0)
+// while the world pawn wears its gear and the client's UArchonInventoryData holds all items (a D43 inventory trace, since removed).
+// So the client's loadout does not resolve its equipped items. The chain the UI walks: controller LOADOUT (+0x9C8) ->
+// active UArchonLoadoutSlotData (LoadoutSlotDataArray +0x670, ActiveLoadoutSlotIndex +0x680; its ArchonInventory
+// +0x28) -> per-slot UArchonLoadoutItemSlot (+0x348..+0x380: Inventory +0x28, ItemInstanceID +0x38 whose replicated
+// part is the CRC at +0x48, CachedItem +0xB8). This logs that chain, with every inventory reference compared with the
+// controller's own Inventory (+0x9B8): every 5 s for 2 min after each possession, then every 30 s, written only when it
+// changed (or every 5 min); and on every ArchonLoadout* OnRep_ callback. Layout: SDK Archon_classes.hpp.
+// Client only; bounded; opt-in with LOADOUT_TRACE.flag (off by default since the D45 fix).
+static std::string MpLoadoutRef(uintptr_t Ref, uintptr_t PcInv) {
+    if (!Ref) return "null";
+    if (Ref == PcInv) return "pc";
+    return std::string(IsRegisteredLiveObject(reinterpret_cast<void*>(Ref)) ? "other:" : "dead:")
+        + MpPtr(reinterpret_cast<void*>(Ref));
+}
+static std::string MpLoadoutSnapshot(UObject* PC) {
+    const uintptr_t Pc = reinterpret_cast<uintptr_t>(PC);
+    const uintptr_t PcInv = SafeReadPtr(Pc, 0x9B8);
+    std::string S = "pcInv=" + (PcInv ? MpPtr(reinterpret_cast<void*>(PcInv)) : std::string("null"));
+    if (PcInv && IsReadablePointer(reinterpret_cast<void*>(PcInv), 0x4C8) && IsRegisteredLiveObject(reinterpret_cast<void*>(PcInv))) {
+        const uintptr_t Data = SafeReadPtr(PcInv, 0x4C0);
+        S += " invItems=" + std::to_string((Data && IsReadablePointer(reinterpret_cast<void*>(Data), 0x40)) ? SafeReadI32At(Data, 0x38) : -1);
+    } else if (PcInv) {
+        S += " invItems=unreadable";
+    }
+    const uintptr_t Lo = SafeReadPtr(Pc, 0x9C8);
+    if (!Lo || !IsReadablePointer(reinterpret_cast<void*>(Lo), 0x8A0) || !IsRegisteredLiveObject(reinterpret_cast<void*>(Lo))) {
+        return S + " loadout=" + (Lo ? "unreadable" : "null");
+    }
+    const int32_t Active = SafeReadI32At(Lo, 0x680);
+    const uintptr_t SlotsData = SafeReadPtr(Lo, 0x670);
+    const int32_t SlotsNum = SafeReadI32At(Lo, 0x678);
+    S += " loadout=" + MpPtr(reinterpret_cast<void*>(Lo)) + " loInv=" + MpLoadoutRef(SafeReadPtr(Lo, 0x638), PcInv)
+        + " active=" + std::to_string(Active) + "/" + std::to_string(SlotsNum);
+    if (Active < 0 || Active >= SlotsNum || SlotsNum > 64 || !SlotsData
+        || !IsReadablePointer(reinterpret_cast<void*>(SlotsData), static_cast<size_t>(SlotsNum) * 8)) {
+        return S + " slot=none";
+    }
+    const uintptr_t Slot = SafeReadPtr(SlotsData, static_cast<uintptr_t>(Active) * 8);
+    if (!Slot || !IsReadablePointer(reinterpret_cast<void*>(Slot), 0x3C8) || !IsRegisteredLiveObject(reinterpret_cast<void*>(Slot))) {
+        return S + " slot=" + (Slot ? "unreadable" : "null");
+    }
+    S += " slotInv=" + MpLoadoutRef(SafeReadPtr(Slot, 0x28), PcInv)
+        + " flask=" + (SafeReadPtr(Slot, 0x3C0) ? "set" : "null");
+    static const char* const kNames[8] = { "role", "wpn", "sub", "helm", "chest", "legs", "arms", "lant" };
+    for (int i = 0; i < 8; ++i) {
+        const uintptr_t Is = SafeReadPtr(Slot, 0x348 + static_cast<uintptr_t>(i) * 8);
+        S += std::string(" ") + kNames[i] + "=";
+        if (!Is) { S += "null"; continue; }
+        if (!IsReadablePointer(reinterpret_cast<void*>(Is), 0xC0) || !IsRegisteredLiveObject(reinterpret_cast<void*>(Is))) {
+            S += "unreadable";
+            continue;
+        }
+        char Crc[16];
+        snprintf(Crc, sizeof(Crc), "%08x", static_cast<uint32_t>(SafeReadI32At(Is, 0x48)));
+        S += std::string("[inv=") + MpLoadoutRef(SafeReadPtr(Is, 0x28), PcInv) + " crc=" + Crc
+            + " idLen=" + std::to_string(SafeReadI32At(Is, 0x40))
+            + " cached=" + (SafeReadPtr(Is, 0xB8) ? "set" : "null") + "]";
+    }
+    return S;
+}
+static void MpLoadoutTrace(MpFunctionNameCacheEntry* Entry) {
+    if (Globals::AmServer) return;
+    static int s_off = -1;
+    if (s_off < 0) s_off = MpExeRelativeFlagPresent(L"LOADOUT_TRACE.flag") ? 0 : 1;
+    if (s_off == 1) return;
+    static int s_lines = 0;   // game thread only
+    if (s_lines >= 3000) return;
+    bool OnRep = false;
+    if (Entry) {
+        if (Entry->LoadoutTrace < 0) {
+            Entry->LoadoutTrace = (Entry->Name.find(" Archon.ArchonLoadout") != std::string::npos
+                && Entry->Name.find(".OnRep_") != std::string::npos) ? 1 : 0;
+        }
+        OnRep = Entry->LoadoutTrace == 1;
+    }
+    const uint64_t Now = GetTickCount64();
+    static uint64_t s_lastSample = 0, s_lastWrite = 0;
+    const uint64_t SincePossess = s_LastPossessedAtMs ? Now - s_LastPossessedAtMs : 0;
+    if (!OnRep && Now - s_lastSample < (SincePossess < 120000 ? 5000u : 30000u)) return;
+    s_lastSample = Now;
+    MpForgetPossessionIfWorldChanged();
+    UObject* PC = s_LastPossessedPC;
+    if (!PC || !IsRegisteredLiveObject(PC) || !IsReadablePointer(PC, 0x9D0)
+        || !PC->IsA(AArchonPlayerController::StaticClass())) {
+        return;
+    }
+    const std::string Snap = MpLoadoutSnapshot(PC);
+    static std::string s_lastSnap;
+    if (!OnRep && Snap == s_lastSnap && Now - s_lastWrite < 300000) return;
+    s_lastSnap = Snap;
+    s_lastWrite = Now;
+    ++s_lines;
+    MpLog("[LoadoutTrace] why=" + (OnRep ? Entry->Name.substr(Entry->Name.find(' ') + 1) : std::string("sample"))
+        + " sincePossessMs=" + std::to_string(SincePossess) + " " + Snap);
+}
+
+// [D45 2026-11-17] Loadout item-id resolve retry (client). [LoadoutTrace] showed the cause of the empty Equipment
+// screen: on a hunt join every UArchonLoadoutItemSlot had its replicated item-id CRC (+0x48, the same as in the hub)
+// but an empty ItemInstanceID string (idLen=0) and no CachedItem, for the whole hunt, while the inventory held all
+// items. Only the CRC replicates (the string is RepSkip); FItemInstanceIdRepl::ResolveItemInstanceId (+0x1BFDDF0,
+// rcx = the FItemInstanceIdRepl, rdx = the AArchonInventory) fills the string by looking the CRC up in the inventory
+// (+0x1B5C060). When the inventory is not ready yet (+0x1BA5E40: its IArchonLoadingInterface HasFinishedLoading) it
+// logs "Inventory is not ready." and queues itself on a delegate list at inventory+0x388, to run again when the
+// inventory reports loaded. On hunt joins the slots replicate before the inventory is ready (they arrive even before
+// ClientRestart) and that retry never comes, so the slots stay unresolved until the next map. This repeats the
+// resolver for unresolved slots once the inventory says it is ready, then calls the slot's own
+// OnRep_ItemInstanceIdChanged (old id = empty) so the loadout and UI pick the item up as on a normal replication.
+// Every loadout slot (not only the active one), every 1 s for 3 min after each possession, then every 10 s.
+// Client only; DISABLE_LOADOUT_RESOLVE_RETRY.flag turns it off.
+static uintptr_t ResolveFunctionStartRva(uintptr_t Rva);
+static void MpLoadoutResolveRetry() {
+    if (Globals::AmServer) return;
+    static int s_state = -1;   // -1 unchecked, 0 off, 1 on
+    if (s_state < 0) {
+        s_state = 0;
+        if (MpExeRelativeFlagPresent(L"DISABLE_LOADOUT_RESOLVE_RETRY.flag")) {
+            MpLog("[LoadoutResolveRetry] DISABLE_LOADOUT_RESOLVE_RETRY.flag present -> off");
+        } else if (ResolveFunctionStartRva(0x01BFDDF0) != 0x01BFDDF0 || ResolveFunctionStartRva(0x01BA5E40) != 0x01BA5E40) {
+            MpLog("[LoadoutResolveRetry] +0x1BFDDF0 / +0x1BA5E40 are not function entries on this exe -> off");
+        } else {
+            s_state = 1;
+            MpLog("[LoadoutResolveRetry] on (resolver +0x1BFDDF0, inventory readiness +0x1BA5E40)");
+        }
+    }
+    if (s_state != 1) return;
+    const uint64_t Now = GetTickCount64();
+    static uint64_t s_last = 0;
+    const uint64_t SincePossess = s_LastPossessedAtMs ? Now - s_LastPossessedAtMs : 0;
+    if (Now - s_last < (SincePossess < 180000 ? 1000u : 10000u)) return;
+    s_last = Now;
+    MpForgetPossessionIfWorldChanged();
+    UObject* PC = s_LastPossessedPC;
+    if (!PC || !IsRegisteredLiveObject(PC) || !IsReadablePointer(PC, 0x9D0)
+        || !PC->IsA(AArchonPlayerController::StaticClass())) {
+        return;
+    }
+    const uintptr_t Lo = SafeReadPtr(reinterpret_cast<uintptr_t>(PC), 0x9C8);
+    if (!Lo || !IsReadablePointer(reinterpret_cast<void*>(Lo), 0x8A0) || !IsRegisteredLiveObject(reinterpret_cast<void*>(Lo))) return;
+    const uintptr_t SlotsData = SafeReadPtr(Lo, 0x670);
+    const int32_t SlotsNum = SafeReadI32At(Lo, 0x678);
+    if (!SlotsData || SlotsNum <= 0 || SlotsNum > 64
+        || !IsReadablePointer(reinterpret_cast<void*>(SlotsData), static_cast<size_t>(SlotsNum) * 8)) {
+        return;
+    }
+    using ResolveFn = void(__fastcall*)(void*, void*);
+    using ReadyFn = bool(__fastcall*)(void*);
+    const auto Resolve = reinterpret_cast<ResolveFn>(Globals::BaseAddress + 0x01BFDDF0);
+    const auto InventoryReady = reinterpret_cast<ReadyFn>(Globals::BaseAddress + 0x01BA5E40);
+    static int s_logs = 0;
+    for (int32_t s = 0; s < SlotsNum; ++s) {
+        const uintptr_t Slot = SafeReadPtr(SlotsData, static_cast<uintptr_t>(s) * 8);
+        if (!Slot || !IsReadablePointer(reinterpret_cast<void*>(Slot), 0x3C8) || !IsRegisteredLiveObject(reinterpret_cast<void*>(Slot))) continue;
+        for (int i = 0; i < 8; ++i) {
+            const uintptr_t Is = SafeReadPtr(Slot, 0x348 + static_cast<uintptr_t>(i) * 8);
+            if (!Is || !IsReadablePointer(reinterpret_cast<void*>(Is), 0xC0) || !IsRegisteredLiveObject(reinterpret_cast<void*>(Is))) continue;
+            if (SafeReadI32At(Is, 0x48) == 0 || SafeReadI32At(Is, 0x40) > 0) continue;   // no item, or resolved
+            void* Inv = reinterpret_cast<void*>(SafeReadPtr(Is, 0x28));
+            if (!Inv || !IsRegisteredLiveObject(Inv) || !InventoryReady(Inv)) continue;
+            Resolve(reinterpret_cast<void*>(Is + 0x38), Inv);
+            const int32_t IdLen = SafeReadI32At(Is, 0x40);
+            if (IdLen > 0) {
+                FItemInstanceIdRepl Old{};   // empty id, CRC 0: "changed from nothing"
+                reinterpret_cast<UArchonLoadoutItemSlot*>(Is)->OnRep_ItemInstanceIdChanged(Old);
+            }
+            if (s_logs < 400) {
+                ++s_logs;
+                char Crc[16];
+                snprintf(Crc, sizeof(Crc), "%08x", static_cast<uint32_t>(SafeReadI32At(Is, 0x48)));
+                MpLog(std::string("[LoadoutResolveRetry] loadoutSlot=") + std::to_string(s) + " itemSlot=" + std::to_string(i)
+                    + " crc=" + Crc + (IdLen > 0 ? " resolved idLen=" + std::to_string(IdLen) : std::string(" still unresolved"))
+                    + " cached=" + (SafeReadPtr(Is, 0xB8) ? "set" : "null") + " sincePossessMs=" + std::to_string(SincePossess));
+            }
+        }
+    }
+}
+
 void ProcessEventClientHook(UObject* Object, UFunction* Function, void* Parms) {
     g_clientProcessEventCount.fetch_add(1, std::memory_order_relaxed);
     if (g_clientGameThreadId.load(std::memory_order_relaxed) == 0) {
@@ -14583,6 +14763,8 @@ void ProcessEventClientHook(UObject* Object, UFunction* Function, void* Parms) {
     static const std::string s_nullFunctionName = "null";
     MpFunctionNameCacheEntry* FunctionNameEntry = Function ? &CachedFunctionNameEntry(Function) : nullptr;
     const std::string& FunctionName = FunctionNameEntry ? FunctionNameEntry->Name : s_nullFunctionName;
+    MpLoadoutTrace(FunctionNameEntry);
+    MpLoadoutResolveRetry();
 
     // Player-host joins can complete the UE handshake and PostLogin, then be rejected by
     // the client during its first travel/replication frame.  The normal UE diagnostics are

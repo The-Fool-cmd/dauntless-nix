@@ -714,3 +714,19 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   the player channel grace (300 frames) and no distance cull (`[BeamChannelGrace]`, logged once per class).
   `DISABLE_BEAM_CHANNEL_GRACE.flag` reverts it. Other projectiles are unchanged.
 - **Verified:** afterwards client and server counted the same beams (19 each) in a Valomyr fight.
+
+## D45 — Retry unresolved loadout item ids on the client (2026-11-17)
+- **Context:** after a hunt join (solo too) the Equipment screen showed nothing equipped (Power and Resistance 0,
+  character drawn unequipped, weapon XP bar empty) until the next map, while the pawn wore its gear and the client
+  held every inventory item.
+- **Measured** (runtime `[LoadoutTrace]`, diagnostic): in the hub every `UArchonLoadoutItemSlot` had its item-id CRC,
+  the 27-character `ItemInstanceID` and a `CachedItem`; in the hunt the same CRCs arrived but the id stayed empty and
+  `CachedItem` null for the whole hunt. Only the CRC replicates; `FItemInstanceIdRepl::ResolveItemInstanceId`
+  (+0x1BFDDF0) looks it up in the inventory and, when the inventory is not ready yet, queues itself on the inventory's
+  loaded delegate (+0x388). On hunt joins the slots replicate before the inventory is ready and that retry never runs.
+- **Decision:** the client runtime retries the resolver for unresolved slots of every loadout slot once the inventory
+  reports ready (+0x1BA5E40), then calls the slot's `OnRep_ItemInstanceIdChanged` (old id empty) so the loadout and UI
+  refresh as on a normal replication (`[LoadoutResolveRetry]`). `DISABLE_LOADOUT_RESOLVE_RETRY.flag` turns it off.
+  `[LoadoutTrace]` stays as an opt-in diagnostic (`LOADOUT_TRACE.flag`).
+- **Verified:** on a hunt join where the race happened, all 18 equipped slots (3 loadouts) were resolved 0.5 s after
+  possession and the Equipment screen was complete; joins without the race leave it idle.
