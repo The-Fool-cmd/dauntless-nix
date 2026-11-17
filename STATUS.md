@@ -84,6 +84,8 @@ First real play-test 2026-11-13: login and Ramsgate work on the deployed server 
    D44: Valomyr's beams sweep on clients again (beam channels no longer close and reopen).
    D45: the Equipment screen no longer comes up empty after some hunt joins (loadout item ids are resolved again once
    the inventory is ready); confirmed in game.
+   D46: two-player Escalations no longer stall after the amp choice (an RPC send on a blocked controller channel
+   faulted and unwound the selection); to confirm in game.
    D40: the event schedule no longer serves the items the capture had switched off (among them
    `Ramsgate_HuntPass_Starts`, parked in 3020), the likely reason passes showed as inactive; to confirm in game.
    New characters start with 10 Rare Cell Cores (`starterItems`).

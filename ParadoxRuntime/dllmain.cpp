@@ -11229,6 +11229,41 @@ void __fastcall PlayerControllerSetChannelActorGuardHook(
         OrigPlayerControllerSetChannelActor)(Channel, Actor, Flags);
 }
 
+// [D46 2026-11-18] RPC send on a channel the guard above left unbound. The replication graph's
+// ProcessRemoteFunction (multicast path around 0x00F27D2D) creates an actor channel, calls
+// SetChannelActor (0x00F27D40), stores the channel in the connection's actor info and then sends the RPC
+// through UNetDriver::ProcessRemoteFunctionForChannel (0x03FA09B0, called at 0x00F27DDF). When the
+// SetChannelActor guard blocks a PlayerController on another player's connection, the channel keeps a
+// null Actor (+0x70); the send reads it (0x03FA0CE2) and faults. The fault unwound the whole RPC: in a
+// two-player Escalation, ServerSelectRelicOption never reached PlayerEscalationRelicsChanged and the
+// next round never opened. Dropping the send for that one connection is what the guard intends anyway
+// (a controller's traffic never goes to another connection); the other connections and the caller go on.
+// 0x03FA09B0 is a thin wrapper: rcx, rdx (channel), r8, r9 and nine stack arguments forwarded to
+// 0x03FA0A30; it returns nothing the caller reads (0x00F27DE4 compares a callee-saved register).
+void* OrigProcessRemoteFunctionForChannel = nullptr;
+void __fastcall ProcessRemoteFunctionForChannelGuardHook(
+    void* NetDriver, void* Channel, void* A3, void* A4, void* A5, void* A6, void* A7,
+    void* A8, void* A9, void* A10, void* A11, void* A12, void* A13) {
+    // The native reads Channel+0x70 unconditionally on this path, so reading it here adds no risk.
+    if (Channel && (IsPlayerControllerChannelQuarantined(Channel)
+            || *reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(Channel) + 0x70) == nullptr)) {
+        static std::atomic<int> s_skipLogs{ 0 };
+        if (s_skipLogs.fetch_add(1, std::memory_order_relaxed) < 64) {
+            const uintptr_t Caller = reinterpret_cast<uintptr_t>(_ReturnAddress());
+            MpLog("[PCChannelRpc] SKIP channel=" + MpPtr(Channel)
+                + " connection=" + MpPtr(*reinterpret_cast<void**>(
+                    reinterpret_cast<uintptr_t>(Channel) + 0x28))
+                + " quarantined=" + std::to_string(IsPlayerControllerChannelQuarantined(Channel) ? 1 : 0)
+                + " callerRva=" + MpHex(Caller >= Globals::BaseAddress ? Caller - Globals::BaseAddress : 0)
+                + " reason=unbound-channel");
+        }
+        return;
+    }
+    reinterpret_cast<void(__fastcall*)(void*, void*, void*, void*, void*, void*, void*,
+        void*, void*, void*, void*, void*, void*)>(OrigProcessRemoteFunctionForChannel)(
+            NetDriver, Channel, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13);
+}
+
 // Production invariant at the final server send boundary. Even if a future graph change regresses
 // routing, a PlayerController is never serialized onto a different NetConnection. This boundary is
 // intentionally non-mutating: changing graph lists while ServerReplicateActors is iterating them
@@ -25130,6 +25165,33 @@ void InitServerHooks() {
         + MH_StatusToString(PcSetChannelCreate)
         + " enable=" + MH_StatusToString(PcSetChannelEnable)
         + " target=+" + MpHex(0x03D8FB20));
+
+    // [D46] The RPC send that follows a blocked bind (see ProcessRemoteFunctionForChannelGuardHook).
+    {
+        static const uint8_t RpcForChannelExpect[] = {
+            0x4C, 0x8B, 0xDC,                          // mov r11, rsp
+            0x48, 0x83, 0xEC, 0x78,                    // sub rsp, 0x78
+            0x48, 0x8B, 0x84, 0x24, 0xE0, 0x00, 0x00, 0x00,  // mov rax, [rsp+0xE0] (13th argument)
+        };
+        const CwSite RpcSite{ "ProcessRemoteFunctionForChannel", 0x03FA09B0,
+            RpcForChannelExpect, sizeof(RpcForChannelExpect), 0, 0,
+            reinterpret_cast<void*>(&ProcessRemoteFunctionForChannelGuardHook),
+            &OrigProcessRemoteFunctionForChannel };
+        if (const char* Reason = CwVerifySite(RpcSite)) {
+            MpLog(std::string("[InitServerHooks] unbound-channel RPC guard NOT installed: ")
+                + Reason + " target=+" + MpHex(RpcSite.Rva));
+        } else {
+            MH_STATUS RpcCreate = MH_CreateHook(
+                reinterpret_cast<void*>(Globals::BaseAddress + RpcSite.Rva),
+                RpcSite.Detour, RpcSite.Orig);
+            MH_STATUS RpcEnable = MH_EnableHook(
+                reinterpret_cast<void*>(Globals::BaseAddress + RpcSite.Rva));
+            MpLog(std::string("[InitServerHooks] unbound-channel RPC guard create=")
+                + MH_StatusToString(RpcCreate)
+                + " enable=" + MH_StatusToString(RpcEnable)
+                + " target=+" + MpHex(RpcSite.Rva) + " entry=pdata bytes=match");
+        }
+    }
 
     // Final fail-closed ownership invariant. This hook is production-always because allowing a
     // remote PlayerController's initial bunch would make stock OnActorChannelOpen replace the

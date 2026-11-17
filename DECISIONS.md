@@ -731,6 +731,23 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Verified:** on a hunt join where the race happened, all 18 equipped slots (3 loadouts) were resolved 0.5 s after
   possession and the Equipment screen was complete; joins without the race leave it idle.
 
+## D46 — Drop RPC sends on a PlayerController channel the bind guard left unbound (2026-11-18)
+- **Context:** in a two-player Escalation, both players picked their amps after round 1, yet the round 2 screen
+  stayed up and the jump platform never activated. The server kept running (60 fps, both connected).
+- **Measured** (server DLL log): each `ServerSelectRelicOption` entered and never returned, and
+  `PlayerEscalationRelicsChanged` never ran (solo runs call it at once). On each pick the replication graph's RPC path
+  (+0x00F27D2D) opened a channel for the picking player's controller on the *other* player's connection; the
+  SetChannelActor guard blocked the bind (`[PCChannelBind] BLOCK … callerRva=0xF27D45`), the graph still sent the RPC
+  through `UNetDriver::ProcessRemoteFunctionForChannel` (+0x03FA09B0) on that channel, and the send read the channel's
+  null actor (+0x03FA0CE2) and faulted. The tick dispatcher's SEH recovered, but the fault unwound the whole RPC, so
+  the selection was never recorded and the round never advanced.
+- **Decision:** the server runtime hooks +0x03FA09B0 (a 13-argument wrapper; .pdata entry and prologue checked before
+  install) and drops the send when the channel is quarantined by the bind guard or has no actor (`[PCChannelRpc] SKIP`).
+  A controller's traffic never goes to another connection, which is what the guard intends; the other connections and
+  the caller carry on.
+- **Verified:** the hook installs on a local server (`unbound-channel RPC guard create=MH_OK`). Still to check in game:
+  a two-player Escalation advancing past the amp choice.
+
 ## D47 — The launcher starts a stopped server (2026-11-18)
 - **Context:** the server runs on demand (`autoStart = false`) and stops itself when idle (D41), so a player who
   wanted to play had to ask the operator to run `dauntless up`.
