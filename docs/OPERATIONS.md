@@ -39,6 +39,13 @@ client has sent a heartbeat and no hunt server has run for that long. The journa
 timer: cooldowns, daily and weekly resets and the Hunt Pass are stored as times and computed when asked, so a
 stopped server loses nothing.
 
+### Start on connect (D47)
+
+With `wakeOnConnect = true`, a player's launcher starts a stopped server: its first call answers "starting", the
+launcher prints `starting it (this can take a minute)...` and waits up to 3 minutes. The journal says
+`a launcher asked for the server, starting it` (`journalctl -u 'dauntless-wake@*'`). It does nothing during a
+`dauntless restore`. Idle auto-stop stops the server again.
+
 ## Updating the runtime (D39)
 
 The runtime DLLs are built where the MSVC licence was accepted, then pinned in the host config with

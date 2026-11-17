@@ -730,3 +730,15 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   `[LoadoutTrace]` stays as an opt-in diagnostic (`LOADOUT_TRACE.flag`).
 - **Verified:** on a hunt join where the race happened, all 18 equipped slots (3 loadouts) were resolved 0.5 s after
   possession and the Equipment screen was complete; joins without the race leave it idle.
+
+## D47 — The launcher starts a stopped server (2026-11-18)
+- **Context:** the server runs on demand (`autoStart = false`) and stops itself when idle (D41), so a player who
+  wanted to play had to ask the operator to run `dauntless up`.
+- **Decision:** `services.dauntless-nix.wakeOnConnect` (off by default). nginx routes a failed (502) launcher status
+  call (`/launcher/v1/status`, the launcher's first request) to a socket-activated root service that starts
+  `dauntless.target` without waiting and answers 503 `server_starting`. The launcher polls every 3 s for up to
+  3 minutes, then goes on as usual; idle auto-stop shuts the server down again. Only the status call wakes it, never
+  during a `dauntless restore`; anyone who can reach nginx can start it, so it relies on `allowedNetworks` and the
+  firewall (the tunnel only, D38). No boot-time start.
+- **Rejected:** starting on a WireGuard handshake (a tunnel that stays connected would keep the server up), and
+  systemd socket activation of the backend itself (the stack is MongoDB, backend and Director, not one process).

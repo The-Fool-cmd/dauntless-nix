@@ -93,6 +93,17 @@ let
     '';
   };
 
+  # D47: the launcher's first call; with wakeOnConnect, "backend down" (502) starts the server instead.
+  statusLocation = backendLocation // {
+    extraConfig = backendLocation.extraConfig + lib.optionalString cfg.wakeOnConnect ''
+      error_page 502 = @dauntless_wake;
+    '';
+  };
+  wakeLocation = {
+    proxyPass = "http://unix:${wakeSocket}:";
+    extraConfig = "proxy_http_version 1.0;";
+  };
+
   # Every dauntless unit is part of dauntless.target: `dauntless up` starts it, `dauntless down` stops all of it.
   target = "dauntless.target";
   inTarget = { wantedBy = [ target ]; partOf = [ target ]; };
@@ -167,6 +178,25 @@ let
       # --no-block: this unit must not wait on the stop job of the target it belongs to.
       systemctl --no-block stop ${lib.concatStringsSep " " operatorUnits}
     fi
+  '';
+
+  # D47: a player's launcher starts the stopped stack. nginx sends a failed launcher status call here (one connection per
+  # instance, Accept=yes); it starts the target without waiting and answers 503 "server_starting" so the launcher polls.
+  wakeSocket = "/run/dauntless-nix-wake.sock";
+  wakeScript = pkgs.writeShellScript "dauntless-wake" ''
+    export PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.systemd ]}
+    # Read the request head first: closing with unread input would reset the connection under nginx.
+    while IFS= read -r -t 5 line && [ "$line" != $'\r' ] && [ -n "$line" ]; do :; done
+    # Never during a restore (it brings MongoDB up and down on its own).
+    if [ -n "$(systemctl list-units --no-legend --plain --state=activating,active 'dauntless-restore@*')" ]; then
+      echo "dauntless: a launcher asked for the server during a restore, not starting it" >&2
+    elif ! systemctl -q is-active ${target}; then
+      echo "dauntless: a launcher asked for the server, starting it" >&2
+      systemctl --no-block start ${target}
+    fi
+    body='{"error":{"code":"server_starting","message":"the server is starting"}}'
+    printf 'HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nRetry-After: 3\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' \
+      "''${#body}" "$body"
   '';
 
   cli = pkgs.writeShellApplication {
@@ -459,6 +489,16 @@ in
       '';
     };
 
+    wakeOnConnect = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Start the whole server when a player's launcher finds it down (its status call answers "starting" and the
+        launcher waits). Anyone who can reach nginx can trigger it, so keep allowedNetworks/openFirewall narrow.
+        Pairs with idleStop, which stops it again.
+      '';
+    };
+
     mongodb.uid = mkOption {
       type = types.int;
       default = 27017;
@@ -587,6 +627,28 @@ in
       description = "dauntless-nix: stop the server when nobody plays";
       inherit (inTarget) wantedBy partOf;
       timerConfig = { OnActiveSec = "1min"; OnUnitActiveSec = "1min"; AccuracySec = "10s"; };
+    };
+    systemd.sockets.dauntless-wake = mkIf cfg.wakeOnConnect {
+      description = "dauntless-nix: start the server for a launcher";
+      wantedBy = [ "sockets.target" ];
+      socketConfig = {
+        ListenStream = wakeSocket;
+        Accept = true;
+        SocketUser = "root";
+        SocketGroup = config.services.nginx.group;
+        SocketMode = "0660";
+        MaxConnections = 8;
+      };
+    };
+    systemd.services."dauntless-wake@" = mkIf cfg.wakeOnConnect {
+      description = "dauntless-nix: start the server for a launcher";
+      serviceConfig = {
+        ExecStart = wakeScript;
+        StandardInput = "socket";
+        StandardOutput = "socket";
+        StandardError = "journal";
+        RuntimeMaxSec = 15;
+      };
     };
     systemd.services.dauntless-idle-check = mkIf (cfg.idleStop.minutes != null) {
       description = "dauntless-nix: idle check";
@@ -820,6 +882,8 @@ in
         listen = [ { addr = "0.0.0.0"; port = cfg.plainHttpPort; } { addr = "[::]"; port = cfg.plainHttpPort; } ];
         extraConfig = "client_max_body_size 64m;";
         locations."/" = backendLocation;
+        locations."= /launcher/v1/status" = statusLocation;
+        locations."@dauntless_wake" = mkIf cfg.wakeOnConnect wakeLocation;
         # D41: the operator API is for the host only (the backend also refuses proxied requests).
         locations."/operator/".return = "404";
       };
@@ -832,6 +896,8 @@ in
         sslCertificateKey = mkIf (cfg.tls.mode != "acme") keyFile;
         extraConfig = "client_max_body_size 64m;";
         locations."/" = backendLocation;
+        locations."= /launcher/v1/status" = statusLocation;
+        locations."@dauntless_wake" = mkIf cfg.wakeOnConnect wakeLocation;
         # D41: the operator API is for the host only (the backend also refuses proxied requests).
         locations."/operator/".return = "404";
       };

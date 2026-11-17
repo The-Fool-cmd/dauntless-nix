@@ -45,7 +45,8 @@ in pkgs.testers.runNixOSTest {
       enable = true;
       publicHost = host;
       syntheticGameData = true;
-      autoStart = false;                  # only `dauntless up` starts it
+      autoStart = false;                  # only `dauntless up` or a player's launcher (wakeOnConnect) starts it
+      wakeOnConnect = true;
       operators = [ "op" ];
       plainHttpPort = 3080;
       firewall.interfaces = [ "eth2" ];
@@ -302,8 +303,8 @@ in pkgs.testers.runNixOSTest {
         server.succeed("su - op -c 'dauntless down' >&2")
         server.fail("systemctl is-active dauntless-backend.service dauntless-director.service podman-dauntless-mongodb.service")
         server.succeed("ls /var/lib/dauntless-nix-backups/mongodb-*-stop.archive.gz")
-        err = remote.fail(f"{run} status 2>&1")   # nginx answers 502: the launcher says the server is down
-        assert "is down" in err, err
+        # nginx answers 502 for everything but the launcher's status call (which would start the server, D47).
+        remote.succeed("test \"$(curl -sk -o /dev/null -w '%{http_code}' https://${host}/launcher/v1/runtime/stable/windows-x86_64)\" = 502")
 
     with subtest("An operator restores a backup; the stack stays down"):
         name = server.succeed("ls -1t /var/lib/dauntless-nix-backups | grep -- '-start.archive.gz' | head -1").strip().removesuffix(".archive.gz")
@@ -311,6 +312,14 @@ in pkgs.testers.runNixOSTest {
         server.succeed("su - op -c 'echo yes | dauntless restore " + name + "' >&2", timeout=600)
         server.succeed("journalctl -u 'dauntless-restore@*' -b | grep -q 'restored " + name + "'")
         server.fail("systemctl is-active dauntless-backend.service podman-dauntless-mongodb.service")
+
+    with subtest("A player's launcher starts the stopped server and waits for it (D47)"):
+        out = remote.succeed(f"{run} status 2>&1", timeout=300)
+        print(out)
+        assert "starting it" in out and "online=true" in out, out
+        server.succeed("systemctl is-active dauntless.target dauntless-backend.service")
+        server.succeed("journalctl -u 'dauntless-wake@*' -b | grep -q 'a launcher asked for the server, starting it'")
+        server.succeed("su - op -c 'dauntless down' >&2")
 
     with subtest("no startup errors in the backend log"):
         server.fail("journalctl -u dauntless-backend.service -b --no-pager | grep -E 'ERROR|Fatal'")

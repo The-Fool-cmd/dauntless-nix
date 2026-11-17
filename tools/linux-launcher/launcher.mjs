@@ -208,18 +208,34 @@ async function cmdLogout(cfg) {
 async function preflight(cfg) {
   const host = new URL(cfg.server).hostname;
   let st;
-  try {
-    st = await api(cfg, "GET", "/launcher/v1/status", { timeoutMs: 8000 });
-  } catch (e) {
-    if ([502, 503, 504].includes(e.status)) die(`the server at ${host} is down (the host machine answers, the game server does not): ask whoever runs it to start it`);
-    if (["ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(e.code))
-      die(`cannot reach ${host} (${e.code}): is your WireGuard tunnel up? (wg show / nmcli connection show --active)`);
-    if (/certificate|self.signed|CERT_|altname/i.test(e.message)) die(`${host} presented a certificate this launcher does not trust: check caCertFile (${e.message})`);
-    throw e;
+  // D47: a stopped server answers 503 server_starting and starts itself; wait for it (MongoDB, backend: ~a minute).
+  const deadline = Date.now() + 180000;
+  let told = false;
+  for (;;) {
+    try {
+      st = await api(cfg, "GET", "/launcher/v1/status", { timeoutMs: 8000 });
+      if (told) console.log("server is up");
+      break;
+    } catch (e) {
+      if (e.status === 503 && /server_starting/.test(e.message) && Date.now() < deadline) {
+        if (!told) { console.log(`the server at ${host} was stopped; starting it (this can take a minute)...`); told = true; }
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+      if (told) die(`the server at ${host} did not come up within 3 minutes: ask whoever runs it to check \`dauntless logs\``);
+      preflightFail(host, e);
+    }
   }
   if (st.online === false) die(`the server at ${host} reports itself offline`);
   if (Number(st.supportedBuildChangelist) !== CHANGELIST) die(`the server expects build ${st.supportedBuildChangelist}, this launcher runs ${CHANGELIST}`);
   return st;
+}
+function preflightFail(host, e) {
+  if ([502, 503, 504].includes(e.status)) die(`the server at ${host} is down (the host machine answers, the game server does not): ask whoever runs it to start it`);
+  if (["ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(e.code))
+    die(`cannot reach ${host} (${e.code}): is your WireGuard tunnel up? (wg show / nmcli connection show --active)`);
+  if (/certificate|self.signed|CERT_|altname/i.test(e.message)) die(`${host} presented a certificate this launcher does not trust: check caCertFile (${e.message})`);
+  throw e;
 }
 async function cmdStatus(cfg) {
   const st = await preflight(cfg);
