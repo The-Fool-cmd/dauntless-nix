@@ -6774,7 +6774,7 @@ static int MpWorldIndexInOuterChain(void* Obj, void* const* Worlds, int NumWorld
 
 // Objects inside the given worlds that carry a GC keep flag. Release = clear Async on the eligible ones (game thread).
 static int MpStuckAsyncScan(void* const* Worlds, int NumWorlds, bool Release, void** OutObj, int* OutWorld, int Max,
-                            int* OutLeftAlone) {
+                            int* OutLeftAlone, bool RequirePendingKill = true) {
     int Found = 0;
     *OutLeftAlone = 0;
     __try {
@@ -6791,7 +6791,8 @@ static int MpStuckAsyncScan(void* const* Worlds, int NumWorlds, bool Release, vo
             if (!(F & 0x4C000000)) continue;                  // no RootSet / AsyncLoading / Async
             const int W = MpWorldIndexInOuterChain(Obj, Worlds, NumWorlds);
             if (W < 0) continue;
-            const bool Eligible = (F & 0x20000000) && !(F & 0x40000000) && (F & 0x04000000) && !(F & 0x08000000);
+            const bool Eligible = (!RequirePendingKill || (F & 0x20000000)) && !(F & 0x40000000) && (F & 0x04000000)
+                && !(F & 0x08000000);
             if (!Eligible) { ++*OutLeftAlone; continue; }
             if (Release) InterlockedAnd(Flags, ~static_cast<LONG>(0x04000000));
             if (Found < Max) { OutObj[Found] = Obj; OutWorld[Found] = W; }
@@ -6842,6 +6843,27 @@ static void MpReleaseZombieKeepFlags(void* const* Worlds, int NumWorlds, const c
     MpLog(std::string("[ZombieWorld] reason=") + Reason + (s_reportOnly ? " FOUND (not released)" : " RELEASED")
         + " stuck Async keep flag on " + std::to_string(N) + " pending-kill object(s) in " + std::to_string(NumWorlds)
         + " leftover world(s); keep-flag holders left alone (AsyncLoading/RootSet/live): " + std::to_string(LeftAlone)
+        + List);
+}
+
+// [D48] Same-map travel (a hunt started from a hunt on the same map): the world being left IS the destination. The
+// release above only reaches pending-kill leftovers after the travel, too late here: the outgoing world's input component
+// still carries the stale Async bit, so LoadMap's full purge keeps the world, FindPackage finds it and LoadMap reuses it
+// with PersistentLevel already gone (0x04272D28 -> AV at +0x285E6F0). LoadMap is about to destroy this world, so clear
+// the stale bit on its objects (Async without AsyncLoading, not RootSet; pending-kill not required) before it runs.
+// KEEP_STUCK_ASYNC_FLAGS.flag reverts (report only).
+static void MpReleaseOutgoingWorldKeepFlags(void* OldWorld) {
+    const bool ReportOnly = MpExeRelativeFlagPresent(L"KEEP_STUCK_ASYNC_FLAGS.flag");
+    void* Worlds[1] = { OldWorld };
+    void* Obj[16] = {};
+    int WorldOf[16] = {};
+    int LeftAlone = 0;
+    const int N = MpStuckAsyncScan(Worlds, 1, !ReportOnly, Obj, WorldOf, 16, &LeftAlone, false);
+    std::string List;
+    for (int i = 0; i < N && i < 16; ++i) List += " | " + MpObjectAndClassName(Obj[i]);
+    MpLog(std::string("[ZombieWorld] reason=same-map-travel ") + (ReportOnly ? "FOUND (not released)" : "RELEASED")
+        + " stuck Async keep flag on " + std::to_string(N) + " object(s) of the outgoing world "
+        + SafeObjectNameForDiagnostic(OldWorld) + "; left alone (AsyncLoading/RootSet): " + std::to_string(LeftAlone)
         + List);
 }
 
@@ -24299,6 +24321,11 @@ static bool __fastcall EngineLoadMapDetour(void* Engine, void* WorldContext, voi
             MpReportZombieWorld(Worlds[i].World, "loadmap-refused");
             return false;
         }
+    }
+    if (OldWorld && !Map.empty()) {
+        std::string Short = Map.substr(Map.find_last_of('/') == std::string::npos ? 0 : Map.find_last_of('/') + 1);
+        if (Short.find('.') != std::string::npos) Short = Short.substr(0, Short.find('.'));
+        if (Short == OldWorldName) MpReleaseOutgoingWorldKeepFlags(OldWorld);   // [D48] same-map travel
     }
     const uint64_t T0 = GetTickCount64();
     const bool Ok = OrigEngineLoadMap(Engine, WorldContext, Url, Pending, Error);
