@@ -743,6 +743,19 @@ One entry per decision: options considered, what was chosen, why. Newest last.
 - **Rejected:** starting on a WireGuard handshake (a tunnel that stays connected would keep the server up), and
   systemd socket activation of the backend itself (the stack is MongoDB, backend and Director, not one process).
 
+## D48 — Same-map travel frees the outgoing world first (2026-11-18)
+- **Context:** starting a hunt from a hunt on the same map (e.g. a second hunt on the same island) crashed the client
+  in `UEngine::LoadMap` 0.4 s after the travel (`[TravelCrash] LoadMap null PersistentLevel`, AV at +0x285E6F0).
+  Hunts on another map were fine.
+- **Cause:** the travel-crash mechanism behind the 0.2.125 fix, reached by a new path. The outgoing world's input
+  component keeps a stale `Async` keep flag, so LoadMap's full-purge GC keeps the world; when the destination is that
+  same map, FindPackage finds it and LoadMap reuses it with its PersistentLevel already gone. The existing release
+  clears the flag only on pending-kill leftover worlds after the travel, too late when the world being left is the
+  destination.
+- **Decision:** on a same-map travel the client runtime clears the stale `Async` bit (not `AsyncLoading`, not
+  RootSet) on the outgoing world's objects at LoadMap entry, before the purge (`[ZombieWorld] reason=same-map-travel`).
+  Other travels are unchanged. `KEEP_STUCK_ASYNC_FLAGS.flag` turns it into a report.
+
 ## D50 — The Gauntlet node is served as stored (2026-11-20)
 - **Context:** while the Gauntlet is off, the backend served the Slayer's Path node `Gauntlet_Unlock` as Locked on
   every journey answer (stored unlock kept). The client then showed the node locked again at each journey refresh
@@ -751,3 +764,4 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   picked from the map is still refused by matchmaking (`GAUNTLET_DISABLED`) until `MYSTICPARADOX_GAUNTLET=on`.
 - **Rejected:** implementing the Gauntlet (season, progression, rewards, leaderboard); refusing the node's purchase
   (the client pays before it saves the journey, so the backend cannot refuse the spend).
+
