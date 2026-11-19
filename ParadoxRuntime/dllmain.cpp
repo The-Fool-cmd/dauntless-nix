@@ -43,6 +43,7 @@
 #include "SDK/Archon_parameters.hpp"
 #include "SDK/lantern_equipped_ab_parameters.hpp"
 #include "SDK/base_gameobject_bp_parameters.hpp"
+#include "SDK/dp_weapon_bp_parameters.hpp"
 
 #include <cwchar>
 #include <fstream>
@@ -14748,6 +14749,99 @@ static void MpLoadoutResolveRetry() {
     }
 }
 
+// [2026-11-19] [RepeaterShot] - read-only trace for "repeater bullets deal no damage" (mines and the Iceborne spear do).
+// Repeater bullets are not a gameplay ability: the owning client traces to the reticle and calls the reliable server RPC
+// dp_weapon_bp_C.ServerShoot(HitActor, HitComponent, HitResult, HitLocation, GunHand) on its weapon actor; the server
+// checks it with the BlueprintPure ServerValidateShoot (attack speed vs LastShotTime, inside object, facing, distance)
+// and applies the damage. Seen once: after a same-map hunt-to-hunt travel no ServerShoot reached the server for the
+// whole hunt (no [GrantTrace] from it), while the hunt before had hundreds. This logs:
+//  - client: each fire input on a dp weapon with the weapon's net state (Role/RemoteRole, Owner -> Owner, the
+//    controller's NetConnection, weapon world vs GWorld), and every dp_weapon_bp RPC the server sends it;
+//  - server: every dp_weapon_bp server RPC it receives; for ServerShoot also the result of ServerValidateShoot called
+//    with the same arguments (pure, so calling it changes nothing), the time since LastShotTime, the distance to the
+//    hit, MaxRange and the damage/power rows.
+// Bounded: the first 6 calls per (weapon, function), then every 100th, at most 800 lines per process.
+static std::string MpRsName(void* Obj) { return Obj ? SafeObjectNameForDiagnostic(Obj) : std::string("null"); }
+
+static bool MpRsShouldLog(void* Object, const std::string& Fn, int* OutCount) {
+    struct Slot { void* Obj; size_t Hash; int Count; };
+    static Slot s_slots[64] = {};
+    static std::atomic<int> s_lines{ 0 };
+    const size_t Hash = std::hash<std::string>{}(Fn);
+    Slot* Hit = nullptr;
+    for (Slot& S : s_slots) if (S.Obj == Object && S.Hash == Hash) { Hit = &S; break; }
+    if (!Hit) {
+        static int s_next = 0;
+        Hit = &s_slots[s_next++ % 64];
+        *Hit = { Object, Hash, 0 };
+    }
+    const int N = ++Hit->Count;
+    *OutCount = N;
+    if (N > 6 && N % 100 != 0) return false;
+    return s_lines.fetch_add(1, std::memory_order_relaxed) < 800;
+}
+
+static void MpRepeaterShotTrace(SDK::UObject* Object, const std::string& FunctionName, void* Parms, bool Server) {
+    static const char kPrefix[] = "Function dp_weapon_bp.dp_weapon_bp_C.";
+    if (!Object || FunctionName.size() < sizeof(kPrefix) || FunctionName.compare(0, sizeof(kPrefix) - 1, kPrefix) != 0) return;
+    const std::string Fn = FunctionName.substr(sizeof(kPrefix) - 1);
+    const bool Input = Fn == "OnPrimaryShoot" || Fn == "OnSecondaryShoot" || Fn == "OnTertiaryShoot";
+    const bool Rpc = Server ? Fn.rfind("Server", 0) == 0
+                            : (Fn.rfind("Multi", 0) == 0 || Fn.rfind("Client", 0) == 0);
+    if (!Input && !Rpc) return;
+    if (!IsRegisteredLiveObject(Object)) return;
+    int N = 0;
+    if (!MpRsShouldLog(Object, Fn, &N)) return;
+    auto* W = reinterpret_cast<SDK::Adp_weapon_bp_C*>(Object);
+    std::string Line = std::string("[RepeaterShot][") + (Server ? "Server" : "Client") + "] fn=" + Fn + " n=" + std::to_string(N)
+        + " weapon=" + MpPtr(Object) + "/" + MpRsName(Object)
+        + " role=" + std::to_string(static_cast<int>(W->Role)) + "/" + std::to_string(static_cast<int>(W->RemoteRole));
+    void* Owner = W->Owner;
+    void* OwnerOwner = (Owner && IsRegisteredLiveObject(Owner)) ? reinterpret_cast<SDK::AActor*>(Owner)->Owner : nullptr;
+    Line += " owner=" + MpRsName(Owner) + " ownerOwner=" + MpRsName(OwnerOwner);
+    if (!Server) {
+        void* Conn = nullptr;
+        if (OwnerOwner && IsRegisteredLiveObject(OwnerOwner)
+            && reinterpret_cast<SDK::UObject*>(OwnerOwner)->IsA(SDK::APlayerController::StaticClass()))
+            Conn = reinterpret_cast<SDK::APlayerController*>(OwnerOwner)->NetConnection;
+        void* Level = Object->Outer;
+        void* World = (Level && IsRegisteredLiveObject(Level)) ? reinterpret_cast<SDK::UObject*>(Level)->Outer : nullptr;
+        void* GWorldNow = SDK::UWorld::GetWorld();
+        Line += " conn=" + MpPtr(Conn) + " world=" + MpPtr(World) + (World == GWorldNow ? "(current)" : "(NOT current " + MpPtr(GWorldNow) + ")");
+        if (Input && Parms) Line += " event=" + std::to_string(static_cast<int>(
+            reinterpret_cast<SDK::Params::dp_weapon_bp_C_OnPrimaryShoot*>(Parms)->Event));
+    }
+    if (Server && Fn == "ServerShoot" && Parms) {
+        auto* P = reinterpret_cast<SDK::Params::dp_weapon_bp_C_ServerShoot*>(Parms);
+        Line += " hitActor=" + MpRsName(P->Hit_Actor) + " hitComp=" + MpRsName(P->HitComponent)
+            + " hand=" + std::to_string(static_cast<int>(P->GunHand_0));
+        static SDK::UFunction* s_validate = nullptr;
+        if (!s_validate) s_validate = Object->Class->GetFunction("dp_weapon_bp_C", "ServerValidateShoot");
+        if (s_validate) {
+            SDK::Params::dp_weapon_bp_C_ServerValidateShoot V;
+            std::memset(&V, 0, sizeof(V));
+            V.HitActor = P->Hit_Actor;
+            V.HitComponent = P->HitComponent;
+            V.HitResult = P->HitResult;
+            V.LastShotTime_0 = W->LastShotTime;
+            Object->ProcessEvent(s_validate, &V);
+            Line += std::string(" valid=") + (V.Valid ? "1" : "0");
+        } else {
+            Line += " valid=?(no ServerValidateShoot)";
+        }
+        const float Now = SDK::UGameplayStatics::GetTimeSeconds(Object);
+        Line += " now=" + std::to_string(Now) + " sinceLast=" + std::to_string(Now - W->LastShotTime);
+        if (Owner && IsRegisteredLiveObject(Owner)) {
+            const SDK::FVector A = reinterpret_cast<SDK::AActor*>(Owner)->K2_GetActorLocation();
+            const float Dx = A.X - P->HitLocation.X, Dy = A.Y - P->HitLocation.Y, Dz = A.Z - P->HitLocation.Z;
+            Line += " dist=" + std::to_string(std::sqrt(Dx * Dx + Dy * Dy + Dz * Dz));
+        }
+        Line += " maxRange=" + std::to_string(W->MaxRange) + " dmgRow=" + W->DamageRowName.ToString()
+            + " powerRow=" + W->PowerRowId.ToString();
+    }
+    MpLog(Line);
+}
+
 void ProcessEventClientHook(UObject* Object, UFunction* Function, void* Parms) {
     g_clientProcessEventCount.fetch_add(1, std::memory_order_relaxed);
     if (g_clientGameThreadId.load(std::memory_order_relaxed) == 0) {
@@ -14821,6 +14915,7 @@ void ProcessEventClientHook(UObject* Object, UFunction* Function, void* Parms) {
     MpFunctionNameCacheEntry* FunctionNameEntry = Function ? &CachedFunctionNameEntry(Function) : nullptr;
     const std::string& FunctionName = FunctionNameEntry ? FunctionNameEntry->Name : s_nullFunctionName;
     MpLoadoutTrace(FunctionNameEntry);
+    MpRepeaterShotTrace(Object, FunctionName, Parms, false);   // [2026-11-19] [RepeaterShot]
     MpLoadoutResolveRetry();
 
     // Player-host joins can complete the UE handshake and PostLogin, then be rejected by
@@ -17363,6 +17458,7 @@ enum MpPeCategory : int {
     MpPeCat_TryActivateAbility,    // ServerTryActivateAbility (covers ...WithEventData)
     MpPeCat_EscalationFlow,        // IsEscalationFlowFunction
     MpPeCat_DroneTrace,            // SetDronePositionActor (TraceArtificerDroneEvent's own first test)
+    MpPeCat_RepeaterShot,          // dp_weapon_bp_C. ([RepeaterShot])
     MpPeCat_Count
 };
 static_assert(MpPeCat_Count <= 64, "MpPeCategory must fit the 64-bit mask");
@@ -17390,6 +17486,7 @@ static uint64_t MpPeComputeCategoryMask(const std::string& N) {
     Set(MpPeCat_TryActivateAbility, Has("ServerTryActivateAbility"));
     Set(MpPeCat_EscalationFlow, IsEscalationFlowFunction(N));
     Set(MpPeCat_DroneTrace, Has("SetDronePositionActor"));
+    Set(MpPeCat_RepeaterShot, Has("dp_weapon_bp_C."));
     return Mask;
 }
 
@@ -17742,6 +17839,10 @@ void ProcessEventHook(UObject* Object, UFunction* Function, void* Parms) {
                 + SafeObjectNameForDiagnostic(Object));
         }
     }
+
+    // [2026-11-19] [RepeaterShot] (see MpRepeaterShotTrace); before the original runs, so ServerShoot is validated
+    // against the pre-shot LastShotTime.
+    if (PeMay(MpPeCat_RepeaterShot)) MpRepeaterShotTrace(Object, FunctionName, Parms, true);
 
     // [2026-07-19] Bleedout-domain capture. ALWAYS ON — the permanent-downed bug is intermittent and
     // there is no second chance to switch a flag on after it happens. Returns immediately for the
