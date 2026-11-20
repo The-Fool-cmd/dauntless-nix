@@ -281,9 +281,13 @@ export function PlanHostPlayerJourney(storedNodes: any, mergedNodes: any, graph:
 // (matchmakingHuntPolicy.ts).
 export const GAUNTLET_UNLOCK_NODE = "Gauntlet_Unlock";
 
-/** The journey nodes served as Locked: Gauntlet_Unlock while MYSTICPARADOX_GAUNTLET is not on, else none. */
+// dauntless-nix D50: the mask is opt-in (MYSTICPARADOX_GAUNTLET_NODE=locked). Served masked, the client showed the node Locked again
+// at every journey refresh and offered it for sale again, so each re-unlock charged the player its price again. By default the node is
+// served as stored; a Gauntlet hunt picked from the map is still refused by matchmaking while Gauntlet is off.
+/** The journey nodes served as Locked: Gauntlet_Unlock when MYSTICPARADOX_GAUNTLET_NODE=locked and Gauntlet is not on, else none. */
 export function JourneyNodesShownLocked(environment: NodeJS.ProcessEnv = process.env): readonly string[] {
-    return GauntletMatchmakingEnabled(environment) ? [] : [GAUNTLET_UNLOCK_NODE];
+    const MaskWanted = (environment.MYSTICPARADOX_GAUNTLET_NODE ?? "").trim().toLowerCase() === "locked";
+    return MaskWanted && !GauntletMatchmakingEnabled(environment) ? [GAUNTLET_UNLOCK_NODE] : [];
 }
 
 /** A copy of the map for a journey answer, with every shown-locked node that is present set to Locked (0). The input is not changed. */

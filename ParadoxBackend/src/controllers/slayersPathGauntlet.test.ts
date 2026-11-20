@@ -12,10 +12,11 @@ import {
 const node = (id: string, status: number) => ({ node_id: id, node_status: status, objectives: [] });
 const GRAPH = BuildSlayersPathGraph({ "Slayer_11": { childNodes: ["Prestige.Unlock"] }, "Prestige.Unlock": { childNodes: [GAUNTLET_UNLOCK_NODE] } });
 
-test("[2026-10-16] Gauntlet_Unlock is shown Locked unless MYSTICPARADOX_GAUNTLET=on", () => {
-    assert.deepEqual(JourneyNodesShownLocked({}), [GAUNTLET_UNLOCK_NODE]);
-    assert.deepEqual(JourneyNodesShownLocked({ MYSTICPARADOX_GAUNTLET: "off" }), [GAUNTLET_UNLOCK_NODE]);
-    assert.deepEqual(JourneyNodesShownLocked({ MYSTICPARADOX_GAUNTLET: " ON " }), []);
+test("D50: Gauntlet_Unlock is served as stored unless MYSTICPARADOX_GAUNTLET_NODE=locked (and Gauntlet is off)", () => {
+    assert.deepEqual(JourneyNodesShownLocked({}), []);
+    assert.deepEqual(JourneyNodesShownLocked({ MYSTICPARADOX_GAUNTLET: "off" }), []);
+    assert.deepEqual(JourneyNodesShownLocked({ MYSTICPARADOX_GAUNTLET_NODE: " Locked " }), [GAUNTLET_UNLOCK_NODE]);
+    assert.deepEqual(JourneyNodesShownLocked({ MYSTICPARADOX_GAUNTLET_NODE: "locked", MYSTICPARADOX_GAUNTLET: " ON " }), []);
 });
 
 test("[2026-10-16] the answer is a masked copy: the unlocked node reads 0, everything else and the stored map are unchanged", () => {

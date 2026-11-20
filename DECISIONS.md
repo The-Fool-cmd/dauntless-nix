@@ -742,3 +742,12 @@ One entry per decision: options considered, what was chosen, why. Newest last.
   firewall (the tunnel only, D38). No boot-time start.
 - **Rejected:** starting on a WireGuard handshake (a tunnel that stays connected would keep the server up), and
   systemd socket activation of the backend itself (the stack is MongoDB, backend and Director, not one process).
+
+## D50 — The Gauntlet node is served as stored (2026-11-20)
+- **Context:** while the Gauntlet is off, the backend served the Slayer's Path node `Gauntlet_Unlock` as Locked on
+  every journey answer (stored unlock kept). The client then showed the node locked again at each journey refresh
+  and sold it again, so every re-unlock charged its price again.
+- **Decision:** serve the node as stored. The mask is opt-in (`MYSTICPARADOX_GAUNTLET_NODE=locked`). A Gauntlet hunt
+  picked from the map is still refused by matchmaking (`GAUNTLET_DISABLED`) until `MYSTICPARADOX_GAUNTLET=on`.
+- **Rejected:** implementing the Gauntlet (season, progression, rewards, leaderboard); refusing the node's purchase
+  (the client pays before it saves the journey, so the backend cannot refuse the spend).
